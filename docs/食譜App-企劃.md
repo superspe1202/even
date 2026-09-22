@@ -76,7 +76,8 @@
             └─ 呼叫 AI（OpenAI 相容端點）→ 結構化食譜 JSON
                     │
                     ▼
-                AI 服務
+            Gemini API（OpenAI 相容端點）
+            可換成 OpenAI / Groq / 自架，只改兩個環境變數
 ```
 
 ### 為什麼一定要有後端
@@ -200,6 +201,7 @@ worker/                   Cloudflare Worker
 ### 上架前檢查清單
 
 - [ ] **繁體中文字型在模擬器或真機逐字驗證**（最優先，會決定內容策略）
+- [ ] 取得 Gemini API key，確認實際可用的模型 ID 並填入 `wrangler.toml`
 - [ ] 部署 Worker，把網址填進 `.env` 的 `VITE_API_BASE` 與 `app.json` 白名單
 - [ ] 為 Worker 設定 Cloudflare Rate Limiting，避免 AI 費用失控
 - [ ] `npm run check-id` 確認 `package_id` 未被佔用

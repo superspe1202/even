@@ -7,6 +7,8 @@ export interface Env {
   AI_MODEL: string
   /** 用 `wrangler secret put AI_API_KEY` 設定，絕不寫進 wrangler.toml。 */
   AI_API_KEY: string
+  /** 設成 'off' 可停用 response_format；預設會帶，被拒絕時自動退回重試。 */
+  AI_JSON_MODE?: string
   /** 可選的共用權杖，擋掉隨手打到這個網址的請求。見 README 的說明與限制。 */
   APP_TOKEN?: string
   ALLOW_ORIGIN?: string
@@ -178,25 +180,22 @@ async function extractRecipe(source: SourceContent, env: Env): Promise<unknown> 
   const label = source.kind === 'youtube' ? '影片字幕' : '網頁內容'
   const userContent = `標題：${source.title || '（無）'}\n\n以下是${label}：\n\n${source.text}`
 
-  const response = await fetch(`${env.AI_BASE_URL.replace(/\/+$/, '')}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${env.AI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: env.AI_MODEL,
-      temperature: 0.2,
-      // 不是每個相容端點都支援 response_format，所以 system prompt 裡
-      // 也明確要求「只輸出 JSON」，兩層保險。
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: userContent },
-      ],
-    }),
-    signal: AbortSignal.timeout(60_000),
-  })
+  const messages = [
+    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'user', content: userContent },
+  ]
+
+  // 各家相容端點對 response_format 的支援程度不一，被拒絕時退回不帶它重試一次。
+  // system prompt 本身就要求「只輸出 JSON」，加上 parseJsonLoose 會剝掉
+  // markdown 圍欄，所以少了這個參數仍然能正常運作。
+  let response = await callChatCompletions(env, messages, env.AI_JSON_MODE !== 'off')
+  if (response.status === 400 && env.AI_JSON_MODE !== 'off') {
+    const detail = await response.clone().text().catch(() => '')
+    if (/response_format|json_object|json_schema/i.test(detail)) {
+      console.warn('端點不接受 response_format，改用純提示模式重試')
+      response = await callChatCompletions(env, messages, false)
+    }
+  }
 
   if (!response.ok) {
     const detail = await response.text().catch(() => '')
@@ -214,6 +213,34 @@ async function extractRecipe(source: SourceContent, env: Env): Promise<unknown> 
     throw new Error(String((recipe as { error: unknown }).error))
   }
   return recipe
+}
+
+interface ChatMessage {
+  role: string
+  content: string
+}
+
+function callChatCompletions(
+  env: Env,
+  messages: ChatMessage[],
+  jsonMode: boolean,
+): Promise<Response> {
+  const body: Record<string, unknown> = {
+    model: env.AI_MODEL,
+    temperature: 0.2,
+    messages,
+  }
+  if (jsonMode) body.response_format = { type: 'json_object' }
+
+  return fetch(`${env.AI_BASE_URL.replace(/\/+$/, '')}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${env.AI_API_KEY}`,
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(60_000),
+  })
 }
 
 /** 有些模型還是會把 JSON 包在 ```json 圍欄裡，先剝掉再解析。 */

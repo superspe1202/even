@@ -45,11 +45,12 @@ Recipe Glass 的解析後端，跑在 Cloudflare Worker 上。
 
 非機密設定在 `wrangler.toml` 的 `[vars]`：
 
-| 變數 | 說明 | 範例 |
+| 變數 | 說明 | 預設值 |
 | --- | --- | --- |
-| `AI_BASE_URL` | 相容 OpenAI chat-completions 的端點 | `https://api.openai.com/v1` |
-| `AI_MODEL` | 模型名稱 | `gpt-4o-mini` |
+| `AI_BASE_URL` | 相容 OpenAI chat-completions 的端點 | Gemini 相容端點 |
+| `AI_MODEL` | 模型 ID | `gemini-3-flash` |
 | `ALLOW_ORIGIN` | CORS 允許來源 | `*` |
+| `AI_JSON_MODE` | 設成 `off` 可停用 `response_format` | `json_object` |
 
 機密值**一律**用 secret，不要寫進 `wrangler.toml`（它會進版控）：
 
@@ -58,8 +59,50 @@ npx wrangler secret put AI_API_KEY
 npx wrangler secret put APP_TOKEN   # 可選，見下方
 ```
 
-因為端點是 OpenAI 相容格式，OpenAI、Groq、Together、OpenRouter、
-Gemini 的相容端點與多數自架推論服務都能直接接，只要換 `AI_BASE_URL` 與 `AI_MODEL`。
+## 使用 Gemini（預設）
+
+`wrangler.toml` 預設已指向 Gemini 的 OpenAI 相容端點：
+
+```
+https://generativelanguage.googleapis.com/v1beta/openai
+```
+
+到 [Google AI Studio](https://aistudio.google.com/apikey) 取得 API key，然後：
+
+```bash
+npx wrangler secret put AI_API_KEY
+```
+
+**模型 ID 請先確認再填。** Gemini 的型號更迭很快（3.x 系列有 Pro、Flash、
+Flash-Lite 多條線），`wrangler.toml` 裡的 `gemini-3-flash` 只是佔位值，
+你的帳號未必有這個 ID。列出實際可用的清單：
+
+```bash
+curl -s "https://generativelanguage.googleapis.com/v1beta/openai/models" \
+  -H "authorization: Bearer $GEMINI_API_KEY" | grep '"id"'
+```
+
+食譜解析是「讀一段文字、吐結構化 JSON」，不需要旗艦推理模型。
+挑 **Flash 或 Flash-Lite** 等級即可，成本差一個數量級。
+
+### 相容層的注意事項
+
+- `AI_BASE_URL` 結尾要停在 `/openai`，程式會自己接 `/chat/completions`，多加路徑會 404。
+- 認證用 `Authorization: Bearer <key>`，程式已經這樣送。
+- Gemini 相容層對 `response_format` 的支援依模式而異。程式在收到 400 且錯誤訊息
+  提到 `response_format` 時會**自動退回不帶該參數重試一次**，所以即使不支援也能運作
+  —— system prompt 本身就要求只輸出 JSON，`parseJsonLoose` 也會剝掉 markdown 圍欄。
+  確定不支援的話可以直接設 `AI_JSON_MODE = "off"` 省下一次往返。
+
+## 換成其他服務
+
+端點是 OpenAI 相容格式，所以 OpenAI、Groq、Together、OpenRouter
+與多數自架推論服務都能直接接，只要改 `AI_BASE_URL` 與 `AI_MODEL`：
+
+```toml
+AI_BASE_URL = "https://api.openai.com/v1"
+AI_MODEL = "gpt-4o-mini"
+```
 
 ## 部署
 

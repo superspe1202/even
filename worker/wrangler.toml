@@ -5,6 +5,13 @@ compatibility_date = "2026-09-01"
 # 非機密設定放這裡；AI_API_KEY 與 APP_TOKEN 一律用
 # `wrangler secret put` 設定，不要寫進這個檔案（它會進版控）。
 [vars]
-AI_BASE_URL = "https://api.openai.com/v1"
-AI_MODEL = "gpt-4o-mini"
+# Gemini 的 OpenAI 相容端點。注意結尾是 /openai，程式會自己接上
+# /chat/completions，所以這裡不要多加路徑。
+AI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
+# 用你帳號實際可用的型號 ID 取代。列出清單：
+#   curl -s "https://generativelanguage.googleapis.com/v1beta/openai/models" \
+#     -H "authorization: Bearer $GEMINI_API_KEY" | grep '"id"'
+AI_MODEL = "gemini-3-flash"
 ALLOW_ORIGIN = "*"
+# 設成 "off" 可停用 response_format（程式在被拒絕時也會自動退回重試）。
+AI_JSON_MODE = "json_object"
