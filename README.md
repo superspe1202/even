@@ -15,6 +15,8 @@ Even（Even Realities）數位眼鏡（智慧眼鏡）相關資料與筆記。
 
 | 資料夾 | 說明 |
 | --- | --- |
+| `recipe-app/` | Recipe Glass —— G2 免手操作食譜 App |
+| `worker/` | 食譜解析後端（Cloudflare Worker） |
 | `docs/` | 規格、SDK、操作手冊等文件 |
 | `assets/` | 圖片、影片、示意圖等素材 |
 | `notes/` | 測試紀錄、會議筆記、待辦想法 |
@@ -24,7 +26,9 @@ Even（Even Realities）數位眼鏡（智慧眼鏡）相關資料與筆記。
 | 文件 | 說明 |
 | --- | --- |
 | [docs/even-g2-官方資源.md](docs/even-g2-官方資源.md) | Even Realities G2 官方 GitHub、SDK、硬體規格、開發流程與上架規則彙整 |
-| [docs/食譜App-企劃.md](docs/食譜App-企劃.md) | G2 專屬食譜 App 的產品企劃、畫面設計、技術選型與上架準備 |
+| [docs/食譜App-企劃.md](docs/食譜App-企劃.md) | Recipe Glass 的產品企劃、系統架構、畫面設計與上架準備 |
+| [recipe-app/README.md](recipe-app/README.md) | App 的開發、打包與架構說明 |
+| [worker/README.md](worker/README.md) | 解析後端的設定、部署與已知限制 |
 
 ## 備註
 
