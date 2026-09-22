@@ -19,6 +19,14 @@ Even（Even Realities）數位眼鏡（智慧眼鏡）相關資料與筆記。
 | `assets/` | 圖片、影片、示意圖等素材 |
 | `notes/` | 測試紀錄、會議筆記、待辦想法 |
 
+## 文件
+
+| 文件 | 說明 |
+| --- | --- |
+| [docs/even-g2-官方資源.md](docs/even-g2-官方資源.md) | Even Realities G2 官方 GitHub、SDK、硬體規格、開發流程與上架規則彙整 |
+| [docs/食譜App-企劃.md](docs/食譜App-企劃.md) | G2 專屬食譜 App 的產品企劃、畫面設計、技術選型與上架準備 |
+
 ## 備註
 
-目前為初始建立的資料夾結構，內容待後續補充。
+G2 App 開發走 Even Hub（Vite + TypeScript + Web SDK）路線，非 G1 的原生藍牙架構，
+詳見官方資源文件。
