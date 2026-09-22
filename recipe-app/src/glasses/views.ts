@@ -12,8 +12,15 @@ export const FOOTER = { x: 0, y: 252, w: 576, h: 34, pad: 4, id: 3, name: 'foote
 /**
  * 右欄：步驟進度。
  *
- * 格數固定 6 格，長食譜用視窗捲動而不是加開容器 —— 一來會撞到每頁 12 個
- * 容器的上限，二來增減容器只能靠 rebuildPageContainer，那會整頁閃一下。
+ * 格數固定 5 格，長食譜用視窗捲動而不是加開容器。
+ *
+ * 容器數量上限是 8 個文字容器（SDK 型別註解：textObject 最多 8 項；
+ * 「12」是含最多 4 個圖片容器的組合上限，純文字沒有圖片時仍是 8）。
+ * header/body/footer 佔 3 個，右欄最多只能開 5 格。這個上限在模擬器上
+ * 實測撞到過：6 格會讓 createStartUpPageContainer 回傳 1（invalid）。
+ *
+ * 另外增減容器只能靠 rebuildPageContainer，那會整頁閃一下，所以格數
+ * 固定不隨步驟數變動。
  */
 export const RAIL = {
   x: 408,
@@ -23,8 +30,8 @@ export const RAIL = {
   top: 34,
   /** 相鄰兩格的間距（含 1px 縫）。 */
   pitch: 31,
-  slots: 6,
-  /** 容器 id 4~9；header/body/footer 佔掉 1~3，總共 9 個，上限 12。 */
+  slots: 5,
+  /** 容器 id 4~8；header/body/footer 佔掉 1~3，總共 8 個，等於上限。 */
   firstId: 4,
 } as const
 
@@ -133,9 +140,6 @@ export interface FooterState {
   view: View
 }
 
-/** 進度條寬度（字元數）。 */
-const BAR_WIDTH = 10
-
 /**
  * 用框線字元畫倒數進度條。
  *
@@ -143,28 +147,67 @@ const BAR_WIDTH = 10
  * 不報錯直接消失。━ 與 ─ 是官方設計文件明列可用的字元，而且比單純顯示
  * 剩餘秒數多給一個「還要等多久」的體感。
  */
-function progressBar(remaining: number, total: number): string {
-  if (total <= 0) return ''
+function progressBar(remaining: number, total: number, width: number): string {
+  if (total <= 0 || width <= 0) return ''
   const elapsed = Math.max(0, Math.min(1, (total - remaining) / total))
-  const filled = Math.round(elapsed * BAR_WIDTH)
-  return '━'.repeat(filled) + '─'.repeat(BAR_WIDTH - filled)
+  const filled = Math.round(elapsed * width)
+  return '━'.repeat(filled) + '─'.repeat(width - filled)
 }
 
-export function footerText({ remaining, total, view }: FooterState): string {
-  const left: string[] = []
-  if (remaining !== null) {
-    const bar = total ? ` ${progressBar(remaining, total)}` : ''
-    left.push(`${formatClock(remaining)}${bar}`)
+const HINT_FULL = '點擊下一頁 · 上滑回上頁 · 雙擊離開'
+const HINT_SHORT = '點擊繼續 · 雙擊離開'
+const HINT_MINIMAL = '雙擊離開'
+
+/**
+ * 頁尾容器只有一行高（34px），LVGL 不會自動把溢出的文字截斷成省略號，
+ * 就是整段直接被裁掉、悄悄消失 —— 跟中文缺字一樣的「靜默失敗」。
+ *
+ * 時間、進度條、頁碼、操作提示四樣疊在一起，某些組合（尤其是長時間格式
+ * 「150:00」加滿版進度條加完整提示）量出來會超過一行寬度。與其賭一個
+ * 固定的進度條寬度，不如照「使用者最需要看到什麼」的順序，實際量測
+ * 每個候選組合，選第一個放得下的 —— 進度條先讓步，再來是把導覽提示
+ * 縮短，時間本身永遠保留。
+ */
+function fitFooter(left: string, hint: string, innerWidth: number): string {
+  const candidates = [
+    hint,
+    hint === HINT_FULL ? HINT_SHORT : null,
+    HINT_MINIMAL,
+  ].filter((h): h is string => h !== null)
+
+  for (const h of candidates) {
+    const text = left ? `${left}  ·  ${h}` : h
+    if (measureTextWrap(text, innerWidth).lineCount <= 1) return text
   }
-  // 'done' 和 'empty' 沒有頁碼欄位。
-  if (
+  // 連最短的提示都放不下時，至少保住左半部資訊，提示整個捨棄。
+  return left || HINT_MINIMAL
+}
+
+export function footerText(
+  { remaining, total, view }: FooterState,
+  innerWidth = FOOTER.w - 2 * FOOTER.pad,
+): string {
+  const pageSuffix =
     (view.kind === 'ingredients' || view.kind === 'step' || view.kind === 'shopping') &&
     view.pageCount > 1
-  ) {
-    left.push(`${view.page + 1}/${view.pageCount}`)
+      ? `  ${view.page + 1}/${view.pageCount}`
+      : ''
+  const hint = view.kind === 'done' ? HINT_MINIMAL : HINT_FULL
+
+  if (remaining === null) {
+    return fitFooter(pageSuffix.trim(), hint, innerWidth)
   }
-  const hint = view.kind === 'done' ? '雙擊離開' : '點擊下一頁 · 上滑回上頁 · 雙擊離開'
-  return left.length ? `${left.join('  ')}  ·  ${hint}` : hint
+
+  const clock = formatClock(remaining)
+  // 進度條寬度依序讓步：8 格放不下就試 5 格，再放不下就乾脆不畫條，只留時間。
+  for (const barWidth of total ? [8, 5, 0] : [0]) {
+    const bar = progressBar(remaining, total ?? 0, barWidth)
+    const left = `${clock}${bar ? ` ${bar}` : ''}${pageSuffix}`
+    const fitted = fitFooter(left, hint, innerWidth)
+    if (measureTextWrap(fitted, innerWidth).lineCount <= 1) return fitted
+  }
+  // 極端情況：退到只顯示時間本身。
+  return clock
 }
 
 export interface RailSlot {
@@ -183,6 +226,15 @@ export function stepLabel(text: string): string {
 }
 
 /**
+ * 韌體字型的省略號用 ASCII 三個句點，不用「…」（U+2026）。
+ *
+ * 這是模擬器上實測到的：「…」在這個字型裡不是真的省略號字形，量測寬度
+ * 正確但畫出來是一條細直線 —— 跟中文缺字一樣的「量得到、畫不出來」。
+ * 三個句點是安全字元，任何字型都有。
+ */
+const ELLIPSIS = '...'
+
+/**
  * 逐字退到真的放得下為止。
  *
  * 不用數字元的方式判斷，因為字寬不等：兩位數的步驟編號就比一位數寬，
@@ -192,10 +244,10 @@ export function stepLabel(text: string): string {
 function fitLabel(label: string, width: number): string {
   if (measureTextWrap(label, width).lineCount <= 1) return label
   for (let len = label.length - 1; len > 0; len--) {
-    const candidate = `${label.slice(0, len)}…`
+    const candidate = `${label.slice(0, len)}${ELLIPSIS}`
     if (measureTextWrap(candidate, width).lineCount <= 1) return candidate
   }
-  return '…'
+  return ELLIPSIS
 }
 
 /**
@@ -243,7 +295,12 @@ export function currentStepOf(view: View, stepTotal: number): number {
   }
 }
 
-/** 計時結束的閃爍畫面。G2 沒有喇叭，只能靠視覺。 */
+/**
+ * 計時結束的閃爍畫面。G2 沒有喇叭，只能靠視覺。
+ *
+ * 不用 ⏱ —— 跟頁尾進度條同一個理由：那是 emoji，韌體字型很可能沒有，
+ * 缺字是靜默略過，不報錯直接消失。
+ */
 export function alarmBody(step: string): string {
-  return `⏱  時 間 到\n\n${step}`
+  return `時 間 到\n\n${step}`
 }
