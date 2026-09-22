@@ -153,12 +153,29 @@ npx evenhub qr --url http://<你的IP>:5173
 
 ### 官方 AI 技能包（建議安裝）
 
-在 Claude Code 中：
+本 repo 已在 `.claude/settings.json` 登記市集並啟用外掛，**在此專案開啟的新工作階段會自動載入**：
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "everything-evenhub": {
+      "source": { "source": "github", "repo": "even-realities/everything-evenhub" }
+    }
+  },
+  "enabledPlugins": {
+    "everything-evenhub@everything-evenhub": true
+  }
+}
+```
+
+若要在其他專案手動安裝，在 Claude Code 中執行：
 
 ```
 /plugin marketplace add even-realities/everything-evenhub
 /plugin install everything-evenhub@everything-evenhub
 ```
+
+更新市集：`/plugin marketplace update everything-evenhub`
 
 安裝後可用的 13 個技能：
 
