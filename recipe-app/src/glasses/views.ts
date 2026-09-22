@@ -1,16 +1,54 @@
+import { measureTextWrap } from '@evenrealities/pretext'
 import type { Recipe } from '../core/types'
 import { formatClock } from '../core/timer'
 import { paginate, paginateLines } from './paginate'
 
 /** 版面幾何。改這裡就好，分頁會跟著重算。 */
 export const HEADER = { x: 0, y: 0, w: 576, h: 32, pad: 4, id: 1, name: 'header' } as const
-export const BODY = { x: 0, y: 34, w: 576, h: 214, pad: 4, id: 2, name: 'body' } as const
+/** 左欄。寬度從滿版 576 縮到 400，右邊讓給步驟進度欄。 */
+export const BODY = { x: 0, y: 34, w: 400, h: 214, pad: 4, id: 2, name: 'body' } as const
 export const FOOTER = { x: 0, y: 252, w: 576, h: 34, pad: 4, id: 3, name: 'footer' } as const
+
+/**
+ * 右欄：步驟進度。
+ *
+ * 格數固定 6 格，長食譜用視窗捲動而不是加開容器 —— 一來會撞到每頁 12 個
+ * 容器的上限，二來增減容器只能靠 rebuildPageContainer，那會整頁閃一下。
+ */
+export const RAIL = {
+  x: 408,
+  w: 168,
+  h: 30,
+  pad: 2,
+  top: 34,
+  /** 相鄰兩格的間距（含 1px 縫）。 */
+  pitch: 31,
+  slots: 6,
+  /** 容器 id 4~9；header/body/footer 佔掉 1~3，總共 9 個，上限 12。 */
+  firstId: 4,
+} as const
+
+/**
+ * 文字亮度，對應 SDK 的 TextContainerProperty.textColor（0~4，預設 4）。
+ * TextContainerUpgrade 也吃這個欄位，所以可以就地調亮調暗不必重建頁面。
+ */
+export const BRIGHTNESS = {
+  /** 目前步驟、左欄內文 */
+  bright: 4,
+  /** 標頭 */
+  header: 3,
+  /** 還沒做到的步驟、頁尾 */
+  dim: 2,
+  /** 已完成的步驟 */
+  done: 1,
+} as const
 
 export const BODY_INNER = {
   width: BODY.w - 2 * BODY.pad,
   height: BODY.h - 2 * BODY.pad,
 }
+
+export const RAIL_INNER_W = RAIL.w - 2 * RAIL.pad
 
 export type View =
   | { kind: 'empty'; body: string }
@@ -90,12 +128,34 @@ export function buildShoppingViews(lines: string[]): View[] {
 export interface FooterState {
   /** 剩餘秒數；null 代表這一步沒有計時。 */
   remaining: number | null
+  /** 這一步設定的總秒數，用來畫進度條。 */
+  total: number | null
   view: View
 }
 
-export function footerText({ remaining, view }: FooterState): string {
+/** 進度條寬度（字元數）。 */
+const BAR_WIDTH = 10
+
+/**
+ * 用框線字元畫倒數進度條。
+ *
+ * 刻意不用 ⏱ —— 那是 emoji，韌體字型很可能沒有，而 G2 缺字是靜默略過，
+ * 不報錯直接消失。━ 與 ─ 是官方設計文件明列可用的字元，而且比單純顯示
+ * 剩餘秒數多給一個「還要等多久」的體感。
+ */
+function progressBar(remaining: number, total: number): string {
+  if (total <= 0) return ''
+  const elapsed = Math.max(0, Math.min(1, (total - remaining) / total))
+  const filled = Math.round(elapsed * BAR_WIDTH)
+  return '━'.repeat(filled) + '─'.repeat(BAR_WIDTH - filled)
+}
+
+export function footerText({ remaining, total, view }: FooterState): string {
   const left: string[] = []
-  if (remaining !== null) left.push(`⏱ ${formatClock(remaining)}`)
+  if (remaining !== null) {
+    const bar = total ? ` ${progressBar(remaining, total)}` : ''
+    left.push(`${formatClock(remaining)}${bar}`)
+  }
   // 'done' 和 'empty' 沒有頁碼欄位。
   if (
     (view.kind === 'ingredients' || view.kind === 'step' || view.kind === 'shopping') &&
@@ -105,6 +165,82 @@ export function footerText({ remaining, view }: FooterState): string {
   }
   const hint = view.kind === 'done' ? '雙擊離開' : '點擊下一頁 · 上滑回上頁 · 雙擊離開'
   return left.length ? `${left.join('  ')}  ·  ${hint}` : hint
+}
+
+export interface RailSlot {
+  content: string
+  brightness: number
+}
+
+/**
+ * 取出這一步在做什麼：切到第一個標點為止。
+ *
+ * 韌體只有一種字型也不能改字級，右欄放不下整句，只能截。切在標點處
+ * 通常剛好就是動作本身（「炒蛋至七分熟。油要多一點」→「炒蛋至七分熟」）。
+ */
+export function stepLabel(text: string): string {
+  return text.split(/[，。：；、\n]/)[0].trim() || text.trim()
+}
+
+/**
+ * 逐字退到真的放得下為止。
+ *
+ * 不用數字元的方式判斷，因為字寬不等：兩位數的步驟編號就比一位數寬，
+ * 「10 慢燉兩個半小時」會溢出而「9 慢燉兩個半小時」不會。改用 LVGL 的
+ * 真實字寬量測，換字型或改欄寬都不必重新調常數。
+ */
+function fitLabel(label: string, width: number): string {
+  if (measureTextWrap(label, width).lineCount <= 1) return label
+  for (let len = label.length - 1; len > 0; len--) {
+    const candidate = `${label.slice(0, len)}…`
+    if (measureTextWrap(candidate, width).lineCount <= 1) return candidate
+  }
+  return '…'
+}
+
+/**
+ * 算出右欄六格該顯示什麼、各自多亮。
+ *
+ * `currentStep` 用一個整數涵蓋三種狀態：-1 還沒開始（食材頁），
+ * 0~n-1 正在某一步，n 全部完成。這樣就不必為了「沒有目前步驟」
+ * 另外開一個可空欄位。
+ */
+export function railSlots(recipe: Recipe | null, currentStep: number): RailSlot[] {
+  const blank = (): RailSlot => ({ content: '', brightness: BRIGHTNESS.dim })
+  const steps = recipe?.steps ?? []
+  if (!steps.length) return Array.from({ length: RAIL.slots }, blank)
+
+  // 視窗捲動：目前步驟前面留兩格，看得到剛做完什麼，也看得到接下來三步。
+  const start =
+    steps.length <= RAIL.slots
+      ? 0
+      : Math.min(Math.max(currentStep - 2, 0), steps.length - RAIL.slots)
+
+  return Array.from({ length: RAIL.slots }, (_, i) => {
+    const at = start + i
+    if (at >= steps.length) return blank()
+    const brightness =
+      at === currentStep
+        ? BRIGHTNESS.bright
+        : at < currentStep
+          ? BRIGHTNESS.done
+          : BRIGHTNESS.dim
+    // 編號與標題一起量，因為兩位數的編號會吃掉一個字的寬度。
+    const content = fitLabel(`${at + 1} ${stepLabel(steps[at].text)}`, RAIL_INNER_W)
+    return { content, brightness }
+  })
+}
+
+/** 從畫面推出目前走到第幾步，給 railSlots 用。 */
+export function currentStepOf(view: View, stepTotal: number): number {
+  switch (view.kind) {
+    case 'step':
+      return view.stepIndex
+    case 'done':
+      return stepTotal
+    default:
+      return -1
+  }
 }
 
 /** 計時結束的閃爍畫面。G2 沒有喇叭，只能靠視覺。 */

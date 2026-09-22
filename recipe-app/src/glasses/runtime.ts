@@ -9,12 +9,17 @@ import type { Recipe } from '../core/types'
 import {
   alarmBody,
   BODY,
+  BRIGHTNESS,
   FOOTER,
   HEADER,
+  RAIL,
   buildShoppingViews,
   buildViews,
+  currentStepOf,
   footerText,
   headerText,
+  railSlots,
+  type RailSlot,
   type View,
 } from './views'
 
@@ -59,6 +64,13 @@ export class GlassesRuntime {
   private alarmUntil = 0
   private alarmHandle: ReturnType<typeof setInterval> | null = null
   private alarmPhase = false
+  /**
+   * 右欄六格上次寫入的內容與亮度。
+   *
+   * 每翻一頁都重寫六格等於六次藍牙往返，翻頁會明顯卡頓。所以記住上次的
+   * 狀態，只寫真的變了的格子 —— 同一步驟內翻頁通常一格都不用動。
+   */
+  private lastRail: RailSlot[] = []
   /** 序列化 bridge 寫入，使用者連點時避免兩次更新互相覆蓋。 */
   private writing: Promise<unknown> = Promise.resolve()
   private unsubscribe: (() => void) | null = null
@@ -77,9 +89,10 @@ export class GlassesRuntime {
   /** 建立啟動頁。必須在使用任何眼鏡端功能之前成功執行一次。 */
   async init(): Promise<boolean> {
     const mk = (
-      c: typeof HEADER | typeof BODY | typeof FOOTER,
+      c: { x: number; y: number; w: number; h: number; pad: number; id: number; name: string },
       content: string,
       capture: 0 | 1,
+      brightness: number,
     ) =>
       new TextContainerProperty({
         xPosition: c.x,
@@ -93,16 +106,40 @@ export class GlassesRuntime {
         containerName: c.name,
         content,
         isEventCapture: capture,
+        textColor: brightness,
       })
+
+    // 右欄六格。containerName 上限 16 字元，r0~r5 很安全。
+    const rail = Array.from({ length: RAIL.slots }, (_, i) =>
+      mk(
+        {
+          x: RAIL.x,
+          y: RAIL.top + i * RAIL.pitch,
+          w: RAIL.w,
+          h: RAIL.h,
+          pad: RAIL.pad,
+          id: RAIL.firstId + i,
+          name: `r${i}`,
+        },
+        '',
+        0,
+        BRIGHTNESS.dim,
+      ),
+    )
+    this.lastRail = Array.from({ length: RAIL.slots }, () => ({
+      content: '',
+      brightness: BRIGHTNESS.dim,
+    }))
 
     const result = await this.bridge.createStartUpPageContainer(
       new CreateStartUpPageContainer({
-        containerTotalNum: 3,
+        containerTotalNum: 3 + RAIL.slots,
         textObject: [
-          mk(HEADER, 'Recipe Glass', 0),
-          // 三個容器裡必須剛好有一個設 isEventCapture: 1。
-          mk(BODY, '在手機上選一份食譜開始。', 1),
-          mk(FOOTER, '雙擊離開', 0),
+          mk(HEADER, 'Recipe Glass', 0, BRIGHTNESS.header),
+          // 所有容器裡必須剛好有一個設 isEventCapture: 1。
+          mk(BODY, '在手機上選一份食譜開始。', 1, BRIGHTNESS.bright),
+          mk(FOOTER, '雙擊離開', 0, BRIGHTNESS.dim),
+          ...rail,
         ],
       }),
     )
@@ -233,6 +270,7 @@ export class GlassesRuntime {
     const stepTotal = this.recipe?.steps.length ?? 0
     await this.write(HEADER.id, HEADER.name, headerText(this.title, stepTotal, view))
     await this.write(BODY.id, BODY.name, view.body)
+    await this.renderRail(currentStepOf(view, stepTotal))
     await this.renderFooter()
 
     // 採購清單沒有進度可保存。
@@ -256,13 +294,30 @@ export class GlassesRuntime {
     if (view.page === 0) this.timer.start(seconds)
   }
 
+  /** 只寫內容或亮度真的變了的格子，避免每翻一頁就六次藍牙往返。 */
+  private async renderRail(currentStep: number): Promise<void> {
+    const slots = railSlots(this.recipe, currentStep)
+    for (let i = 0; i < slots.length; i++) {
+      const next = slots[i]
+      const prev = this.lastRail[i]
+      if (prev && prev.content === next.content && prev.brightness === next.brightness) continue
+      this.lastRail[i] = { ...next }
+      await this.write(RAIL.firstId + i, `r${i}`, next.content, next.brightness)
+    }
+  }
+
   private async renderFooter(): Promise<void> {
     const view = this.view
     if (!view) return
+    const running = this.timer.running
+    const total =
+      running && view.kind === 'step'
+        ? (this.recipe?.steps[view.stepIndex]?.timerSeconds ?? null)
+        : null
     await this.write(
       FOOTER.id,
       FOOTER.name,
-      footerText({ remaining: this.timer.running ? this.timer.remaining() : null, view }),
+      footerText({ remaining: running ? this.timer.remaining() : null, total, view }),
     )
   }
 
@@ -293,11 +348,22 @@ export class GlassesRuntime {
     }
   }
 
-  private write(containerID: number, containerName: string, content: string): Promise<unknown> {
+  /** `brightness` 省略表示保持容器目前的亮度，不必每次都送。 */
+  private write(
+    containerID: number,
+    containerName: string,
+    content: string,
+    brightness?: number,
+  ): Promise<unknown> {
     this.writing = this.writing
       .then(() =>
         this.bridge.textContainerUpgrade(
-          new TextContainerUpgrade({ containerID, containerName, content }),
+          new TextContainerUpgrade({
+            containerID,
+            containerName,
+            content,
+            ...(brightness === undefined ? {} : { textColor: brightness }),
+          }),
         ),
       )
       .catch(err => console.error('textContainerUpgrade 失敗：', err))
