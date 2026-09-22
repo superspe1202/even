@@ -11,6 +11,7 @@ import {
   BODY,
   FOOTER,
   HEADER,
+  buildShoppingViews,
   buildViews,
   footerText,
   headerText,
@@ -51,6 +52,8 @@ export interface RuntimeCallbacks {
  */
 export class GlassesRuntime {
   private recipe: Recipe | null = null
+  /** 標頭左半的文字：烹飪時是食譜名，採購清單時是「採購清單」。 */
+  private title = 'Recipe Glass'
   private views: View[] = []
   private index = 0
   private alarmUntil = 0
@@ -114,8 +117,24 @@ export class GlassesRuntime {
   /** 載入食譜並跳到指定畫面（例如還原上次進度）。 */
   async load(recipe: Recipe, viewIndex = 0): Promise<void> {
     this.recipe = recipe
+    this.title = recipe.name
     this.views = buildViews(recipe)
     this.index = Math.min(Math.max(0, viewIndex), this.views.length - 1)
+    await this.render()
+  }
+
+  /**
+   * 改為顯示採購清單。
+   *
+   * 把 recipe 清成 null，計時與進度保存就自動失效 —— 採購清單沒有步驟
+   * 也不需要倒數，不必為它多開一套狀態。
+   */
+  async loadShoppingList(lines: string[]): Promise<void> {
+    this.recipe = null
+    this.title = '採購清單'
+    this.timer.stop()
+    this.views = buildShoppingViews(lines)
+    this.index = 0
     await this.render()
   }
 
@@ -205,18 +224,19 @@ export class GlassesRuntime {
   }
 
   private async render(): Promise<void> {
-    const recipe = this.recipe
     const view = this.view
-    if (!recipe || !view) return
+    if (!view) return
 
     this.stopAlarm()
     this.syncTimerFor(view)
 
-    await this.write(HEADER.id, HEADER.name, headerText(recipe, view))
+    const stepTotal = this.recipe?.steps.length ?? 0
+    await this.write(HEADER.id, HEADER.name, headerText(this.title, stepTotal, view))
     await this.write(BODY.id, BODY.name, view.body)
     await this.renderFooter()
 
-    this.callbacks.onPositionChange?.(recipe.id, this.index)
+    // 採購清單沒有進度可保存。
+    if (this.recipe) this.callbacks.onPositionChange?.(this.recipe.id, this.index)
   }
 
   /**

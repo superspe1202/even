@@ -16,7 +16,19 @@ export interface Step {
   tip?: string
 }
 
-export type RecipeSource = 'manual' | 'web' | 'youtube'
+export type RecipeSource = 'manual' | 'web' | 'youtube' | 'catalog'
+
+/** 難易度。只有三級 —— 再細分使用者也分不出差別。 */
+export type Difficulty = 'easy' | 'medium' | 'hard'
+
+export const DIFFICULTY_LABEL: Record<Difficulty, string> = {
+  easy: '簡單',
+  medium: '中等',
+  hard: '困難',
+}
+
+/** 排序用的權重，讓「由簡到難」有明確順序。 */
+export const DIFFICULTY_RANK: Record<Difficulty, number> = { easy: 0, medium: 1, hard: 2 }
 
 export interface Recipe {
   id: string
@@ -24,6 +36,7 @@ export interface Recipe {
   name: string
   servings: number
   totalMinutes: number
+  difficulty: Difficulty
   source: RecipeSource
   sourceUrl?: string
   ingredients: Ingredient[]
@@ -37,6 +50,8 @@ export interface RecipeIndexEntry {
   id: string
   name: string
   stepCount: number
+  totalMinutes: number
+  difficulty: Difficulty
   updatedAt: number
 }
 
@@ -45,4 +60,19 @@ export interface CookingProgress {
   recipeId: string
   /** -1 代表食材總覽頁，0 以上是步驟索引。 */
   stepIndex: number
+}
+
+/**
+ * 採購清單的一項。
+ *
+ * 份量是自由文字（「少許」「3-4 個」），沒辦法數值相加，所以同一種食材
+ * 來自不同食譜時各自保留一筆份量與出處，讓使用者自己判斷要買多少。
+ */
+export interface ShoppingItem {
+  id: string
+  item: string
+  /** 每一筆 = 一份食譜的需求。 */
+  needs: { amount: string; from: string }[]
+  checked: boolean
+  addedAt: number
 }

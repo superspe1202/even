@@ -1,5 +1,5 @@
 import { newId } from './id'
-import type { Ingredient, Recipe, RecipeSource, Step } from './types'
+import type { Difficulty, Ingredient, Recipe, RecipeSource, Step } from './types'
 
 /**
  * 解析服務的位置。打包時由 Vite 以 `VITE_API_BASE` 注入；
@@ -131,6 +131,7 @@ export function normalizeRecipe(raw: unknown, sourceUrl: string, source: RecipeS
     name: asString(obj.name) || asString(obj.title) || '未命名食譜',
     servings: asPositiveInt(obj.servings, 2),
     totalMinutes: asPositiveInt(obj.totalMinutes, 30),
+    difficulty: asDifficulty(obj.difficulty, steps.length),
     source,
     sourceUrl,
     ingredients,
@@ -140,6 +141,20 @@ export function normalizeRecipe(raw: unknown, sourceUrl: string, source: RecipeS
   }
 }
 
+/**
+ * 模型給的難易度不一定是我們的三級之一，甚至可能沒給。
+ * 退而求其次用步驟數推估 —— 比硬塞一個「中等」誠實。
+ */
+function asDifficulty(value: unknown, stepCount: number): Difficulty {
+  const raw = asString(value).toLowerCase()
+  if (raw === 'easy' || raw.includes('簡單') || raw.includes('容易')) return 'easy'
+  if (raw === 'hard' || raw.includes('困難') || raw.includes('難')) return 'hard'
+  if (raw === 'medium' || raw.includes('中等')) return 'medium'
+  if (stepCount <= 5) return 'easy'
+  if (stepCount >= 10) return 'hard'
+  return 'medium'
+}
+
 export function emptyRecipe(): Recipe {
   const now = Date.now()
   return {
@@ -147,6 +162,7 @@ export function emptyRecipe(): Recipe {
     name: '新食譜',
     servings: 2,
     totalMinutes: 30,
+    difficulty: 'easy',
     source: 'manual',
     ingredients: [],
     steps: [{ id: newId(), text: '' }],

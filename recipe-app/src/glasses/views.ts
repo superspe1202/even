@@ -16,6 +16,7 @@ export type View =
   | { kind: 'empty'; body: string }
   | { kind: 'ingredients'; body: string; page: number; pageCount: number }
   | { kind: 'step'; stepIndex: number; body: string; page: number; pageCount: number }
+  | { kind: 'shopping'; body: string; page: number; pageCount: number }
   | { kind: 'done'; body: string }
 
 /**
@@ -54,18 +55,36 @@ export function buildViews(recipe: Recipe): View[] {
   return views
 }
 
-export function headerText(recipe: Recipe, view: View): string {
-  const name = recipe.name
+export function headerText(title: string, stepTotal: number, view: View): string {
   switch (view.kind) {
     case 'ingredients':
-      return `${name} · 食材`
+      return `${title} · 食材`
     case 'step':
-      return `${name} · 步驟 ${view.stepIndex + 1}/${recipe.steps.length}`
+      return `${title} · 步驟 ${view.stepIndex + 1}/${stepTotal}`
+    case 'shopping':
+      return view.pageCount > 1 ? `${title} ${view.page + 1}/${view.pageCount}` : title
     case 'done':
-      return `${name} · 完成`
+      return `${title} · 完成`
     default:
-      return name
+      return title
   }
+}
+
+/**
+ * 採購清單的畫面。沒有步驟、沒有計時，就是一份可以翻頁的清單 ——
+ * 逛超市時抬頭看得到要買什麼，雙手還能推推車。
+ */
+export function buildShoppingViews(lines: string[]): View[] {
+  if (!lines.length) {
+    return [{ kind: 'empty', body: '採購清單是空的。\n\n在手機上把食譜的食材加進來。' }]
+  }
+  const pages = paginateLines(lines, BODY_INNER)
+  return pages.map((body, page) => ({
+    kind: 'shopping' as const,
+    body,
+    page,
+    pageCount: pages.length,
+  }))
 }
 
 export interface FooterState {
@@ -77,8 +96,11 @@ export interface FooterState {
 export function footerText({ remaining, view }: FooterState): string {
   const left: string[] = []
   if (remaining !== null) left.push(`⏱ ${formatClock(remaining)}`)
-  // 只有食材與步驟會分頁；'done' 和 'empty' 沒有頁碼欄位。
-  if ((view.kind === 'ingredients' || view.kind === 'step') && view.pageCount > 1) {
+  // 'done' 和 'empty' 沒有頁碼欄位。
+  if (
+    (view.kind === 'ingredients' || view.kind === 'step' || view.kind === 'shopping') &&
+    view.pageCount > 1
+  ) {
     left.push(`${view.page + 1}/${view.pageCount}`)
   }
   const hint = view.kind === 'done' ? '雙擊離開' : '點擊下一頁 · 上滑回上頁 · 雙擊離開'

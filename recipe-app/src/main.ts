@@ -61,6 +61,11 @@ async function boot() {
       cookingId = recipe.id
       await runtime!.load(recipe, 0)
     },
+    onShowShopping: async (lines: string[]) => {
+      // 採購清單接管眼鏡畫面，烹飪中的標記要收掉。
+      cookingId = null
+      await runtime!.loadShoppingList(lines)
+    },
     cookingRecipeId: () => cookingId,
   })
   await ui.start()

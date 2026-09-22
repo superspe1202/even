@@ -1,3 +1,4 @@
+import { ShoppingList } from './shopping'
 import type { CookingProgress, Recipe, RecipeIndexEntry } from './types'
 
 /**
@@ -13,6 +14,7 @@ export interface StorageBridge {
 
 const INDEX_KEY = 'rg.index'
 const PROGRESS_KEY = 'rg.progress'
+const SHOPPING_KEY = 'rg.shopping'
 const RECIPE_PREFIX = 'rg.r.'
 /** 單筆 value 太大有風險，長食譜切塊存。 */
 const CHUNK_SIZE = 40_000
@@ -79,6 +81,8 @@ export class RecipeStore {
       id: recipe.id,
       name: recipe.name,
       stepCount: recipe.steps.length,
+      totalMinutes: recipe.totalMinutes,
+      difficulty: recipe.difficulty,
       updatedAt: recipe.updatedAt,
     }
     const at = index.findIndex(e => e.id === recipe.id)
@@ -111,5 +115,14 @@ export class RecipeStore {
 
   async clearProgress(): Promise<void> {
     await this.bridge.setLocalStorage(PROGRESS_KEY, '')
+  }
+
+  async getShoppingList(): Promise<ShoppingList> {
+    const raw = await this.bridge.getLocalStorage(SHOPPING_KEY)
+    return ShoppingList.from(parseJson<unknown>(raw, []))
+  }
+
+  async saveShoppingList(list: ShoppingList): Promise<void> {
+    await this.bridge.setLocalStorage(SHOPPING_KEY, JSON.stringify(list.raw))
   }
 }
