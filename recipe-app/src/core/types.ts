@@ -55,11 +55,19 @@ export interface RecipeIndexEntry {
   updatedAt: number
 }
 
-/** 上次烹飪到哪裡，重開 App 可以接著煮。 */
+/**
+ * 某份食譜上次煮到哪裡。
+ *
+ * 存的是陣列而不是單一一份 —— 使用者可能同時開著兩道菜的進度（例如
+ * 一道在燉、一道在切），切換食譜時要能各自接續，不能只記得最後一份。
+ */
 export interface CookingProgress {
   recipeId: string
   /** -1 代表食材總覽頁，0 以上是步驟索引。 */
   stepIndex: number
+  /** 這一步的計時器絕對結束時間；沒有計時器在跑就是 0。切換或背景還原時用來接續倒數而不是重新起算。 */
+  timerEndsAt: number
+  updatedAt: number
 }
 
 /**

@@ -100,21 +100,33 @@ export class RecipeStore {
     for (let i = 0; i < count; i++) {
       await this.bridge.setLocalStorage(chunkKey(id, i), '')
     }
-    const progress = await this.getProgress()
-    if (progress?.recipeId === id) await this.clearProgress()
+    await this.clearProgress(id)
   }
 
-  async getProgress(): Promise<CookingProgress | null> {
+  /** 所有目前有進度的食譜，用來判斷「還有哪些食譜在煮」以支援切換。 */
+  async listProgress(): Promise<CookingProgress[]> {
     const raw = await this.bridge.getLocalStorage(PROGRESS_KEY)
-    return parseJson<CookingProgress | null>(raw, null)
+    const parsed = parseJson<unknown>(raw, [])
+    return Array.isArray(parsed) ? (parsed as CookingProgress[]) : []
   }
 
-  async setProgress(progress: CookingProgress): Promise<void> {
-    await this.bridge.setLocalStorage(PROGRESS_KEY, JSON.stringify(progress))
+  async getProgress(recipeId: string): Promise<CookingProgress | null> {
+    return (await this.listProgress()).find(p => p.recipeId === recipeId) ?? null
   }
 
-  async clearProgress(): Promise<void> {
-    await this.bridge.setLocalStorage(PROGRESS_KEY, '')
+  /** 依 `recipeId` 更新或新增一筆，不影響其他食譜的進度。 */
+  async setProgress(progress: Omit<CookingProgress, 'updatedAt'>): Promise<void> {
+    const list = await this.listProgress()
+    const entry: CookingProgress = { ...progress, updatedAt: Date.now() }
+    const at = list.findIndex(p => p.recipeId === progress.recipeId)
+    if (at >= 0) list[at] = entry
+    else list.push(entry)
+    await this.bridge.setLocalStorage(PROGRESS_KEY, JSON.stringify(list))
+  }
+
+  async clearProgress(recipeId: string): Promise<void> {
+    const list = (await this.listProgress()).filter(p => p.recipeId !== recipeId)
+    await this.bridge.setLocalStorage(PROGRESS_KEY, JSON.stringify(list))
   }
 
   async getShoppingList(): Promise<ShoppingList> {

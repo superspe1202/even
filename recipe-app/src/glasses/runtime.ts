@@ -49,6 +49,8 @@ export interface RuntimeCallbacks {
   /** 位置變動時通知外層做進度保存與手機端鏡像。 */
   onPositionChange?: (recipeId: string, viewIndex: number) => void
   onExit?: () => void
+  /** 長按：使用者想切換到另一道也在煮的食譜，不影響目前這份的進度。 */
+  onSwitchRecipe?: () => void
 }
 
 /**
@@ -67,9 +69,9 @@ export class GlassesRuntime {
   private alarmHandle: ReturnType<typeof setInterval> | null = null
   private alarmPhase = false
   /**
-   * 右欄六格上次寫入的內容與亮度。
+   * 右欄五格上次寫入的內容與亮度。
    *
-   * 每翻一頁都重寫六格等於六次藍牙往返，翻頁會明顯卡頓。所以記住上次的
+   * 每翻一頁都重寫五格等於五次藍牙往返，翻頁會明顯卡頓。所以記住上次的
    * 狀態，只寫真的變了的格子 —— 同一步驟內翻頁通常一格都不用動。
    */
   private lastRail: RailSlot[] = []
@@ -80,6 +82,12 @@ export class GlassesRuntime {
   /** 標頭右側時間，即使使用者不操作也要每隔一段時間自己刷新。 */
   private clockHandle: ReturnType<typeof setInterval> | null = null
   private lastHeader = ''
+  /**
+   * `load()` 傳入的計時器續接時間，只在緊接著的那次 `render()` 用一次。
+   * 一般翻頁（`go()`）不會設定它，所以正常進入新步驟時計時器照常重新起算，
+   * 只有切換食譜或背景還原這種「回到同一步」的情境才會接續而不是重來。
+   */
+  private pendingTimerEndsAt: number | null = null
 
   constructor(
     private readonly bridge: GlassesBridge,
@@ -114,7 +122,7 @@ export class GlassesRuntime {
         textColor: brightness,
       })
 
-    // 右欄六格。containerName 上限 16 字元，r0~r5 很安全。
+    // 右欄五格。containerName 上限 16 字元，r0~r4 很安全。
     const rail = Array.from({ length: RAIL.slots }, (_, i) =>
       mk(
         {
@@ -158,12 +166,19 @@ export class GlassesRuntime {
     return true
   }
 
-  /** 載入食譜並跳到指定畫面（例如還原上次進度）。 */
-  async load(recipe: Recipe, viewIndex = 0): Promise<void> {
+  /**
+   * 載入食譜並跳到指定畫面（例如還原上次進度、或切換到另一道食譜）。
+   *
+   * `timerEndsAt` 有值且還沒過期時，落在的那個步驟若有計時器會從這個絕對
+   * 時間續接倒數，而不是從整段秒數重新起算——不然切換食譜或背景還原時，
+   * 正在燉的東西看起來會被「重設」成剛開始煮。
+   */
+  async load(recipe: Recipe, viewIndex = 0, timerEndsAt?: number): Promise<void> {
     this.recipe = recipe
     this.title = recipe.name
     this.views = buildViews(recipe)
     this.index = Math.min(Math.max(0, viewIndex), this.views.length - 1)
+    this.pendingTimerEndsAt = timerEndsAt && timerEndsAt > Date.now() ? timerEndsAt : null
     await this.render()
   }
 
@@ -215,13 +230,15 @@ export class GlassesRuntime {
         return
       }
 
-      // 正在響鈴時，任何前進動作都先當作「我知道了」，不翻頁。
+      // 正在響鈴時，任何前進動作都先當作「我知道了」，不翻頁也不切換食譜。
       if (this.alarmHandle !== null) {
         if (
           textType === OsEventTypeList.SCROLL_TOP_EVENT ||
           textType === OsEventTypeList.SCROLL_BOTTOM_EVENT ||
           sysType === OsEventTypeList.CLICK_EVENT ||
-          textType === OsEventTypeList.CLICK_EVENT
+          textType === OsEventTypeList.CLICK_EVENT ||
+          sysType === OsEventTypeList.LONG_PRESS_EVENT ||
+          textType === OsEventTypeList.LONG_PRESS_EVENT
         ) {
           this.stopAlarm()
           void this.render()
@@ -235,6 +252,14 @@ export class GlassesRuntime {
       }
       if (textType === OsEventTypeList.SCROLL_BOTTOM_EVENT) {
         void this.go(1)
+        return
+      }
+      // 長按：切換到另一道也在煮的食譜。跟點擊、雙擊是不同手勢，不會互相干擾。
+      if (
+        sysType === OsEventTypeList.LONG_PRESS_EVENT ||
+        textType === OsEventTypeList.LONG_PRESS_EVENT
+      ) {
+        this.callbacks.onSwitchRecipe?.()
         return
       }
       // CLICK_EVENT 是 0，protobuf 會省略零值，所以它是「沒有型別」的退路，
@@ -289,6 +314,9 @@ export class GlassesRuntime {
    * 離開步驟則停止 —— 使用者不必為了計時多做任何操作。
    */
   private syncTimerFor(view: View) {
+    const resumeAt = this.pendingTimerEndsAt
+    this.pendingTimerEndsAt = null
+
     if (view.kind !== 'step') {
       this.timer.stop()
       return
@@ -298,7 +326,7 @@ export class GlassesRuntime {
       this.timer.stop()
       return
     }
-    if (view.page === 0) this.timer.start(seconds)
+    if (view.page === 0) this.timer.start(seconds, resumeAt ?? undefined)
   }
 
   /**

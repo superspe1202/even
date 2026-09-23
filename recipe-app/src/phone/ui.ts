@@ -32,6 +32,10 @@ export interface PhoneUiHooks {
   /** 把採購清單推到眼鏡上顯示。 */
   onShowShopping: (lines: string[]) => Promise<void>
   cookingRecipeId: () => string | null
+  /** 有進度、但目前沒有顯示在眼鏡上的食譜 id——在眼鏡上長按可以切過去接續。 */
+  otherActiveRecipeIds: () => string[]
+  /** 食譜被刪除時通知外層，清掉對應的進度追蹤。 */
+  onRecipeDeleted: (id: string) => void
 }
 
 const esc = (s: string) =>
@@ -383,6 +387,7 @@ export class PhoneUi {
     const recipe = this.screen.recipe
     if (!window.confirm(`確定要刪除「${recipe.name}」？這個動作無法復原。`)) return
     await this.store.remove(recipe.id)
+    this.hooks.onRecipeDeleted(recipe.id)
     await this.refreshIndex()
     this.go({ name: 'library' })
   }
@@ -436,6 +441,7 @@ export class PhoneUi {
 
   private library(): string {
     const cooking = this.hooks.cookingRecipeId()
+    const others = new Set(this.hooks.otherActiveRecipeIds())
     const pending = this.shopping.pending.length
     const rows = this.index
       .map(
@@ -450,7 +456,9 @@ export class PhoneUi {
           ${
             e.id === cooking
               ? '<span class="badge accent">烹飪中</span>'
-              : `<span class="chev">${icon.chevron}</span>`
+              : others.has(e.id)
+                ? '<span class="badge">進行中</span>'
+                : `<span class="chev">${icon.chevron}</span>`
           }
         </a>`,
       )
@@ -652,10 +660,14 @@ export class PhoneUi {
       )
       .join('')
 
+    const resuming =
+      recipe.id !== this.hooks.cookingRecipeId() &&
+      this.hooks.otherActiveRecipeIds().includes(recipe.id)
+
     return `
       ${this.topBar(recipe.name, '<button class="ghost" data-action="edit">編輯</button>')}
       <button class="primary big" data-action="cook" ${this.busy ? 'disabled' : ''}>
-        ${this.busy ? '傳送中…' : '開始烹飪'}
+        ${this.busy ? '傳送中…' : resuming ? '繼續烹飪（切換過來）' : '開始烹飪'}
       </button>
       <p class="caption" style="margin:14px 2px">
         ${recipe.steps.length} 步驟 · 約 ${recipe.totalMinutes} 分 ·
