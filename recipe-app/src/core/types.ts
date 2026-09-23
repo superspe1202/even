@@ -16,7 +16,8 @@ export interface Step {
   tip?: string
 }
 
-export type RecipeSource = 'manual' | 'web' | 'youtube' | 'catalog'
+/** `ai`：不接任何網址，直接請 AI 憑自己的知識生成（「AI 搜尋食譜」用的來源）。 */
+export type RecipeSource = 'manual' | 'web' | 'youtube' | 'catalog' | 'ai'
 
 /** 難易度。只有三級 —— 再細分使用者也分不出差別。 */
 export type Difficulty = 'easy' | 'medium' | 'hard'
@@ -38,6 +39,7 @@ export interface Recipe {
   totalMinutes: number
   difficulty: Difficulty
   source: RecipeSource
+  /** 來源網址；`source` 是 `ai` 時借這個欄位存當初搜尋用的查詢字串。 */
   sourceUrl?: string
   ingredients: Ingredient[]
   steps: Step[]

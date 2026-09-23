@@ -8,7 +8,7 @@ import {
   type SortKey,
 } from '../core/catalog'
 import { newId } from '../core/id'
-import { ImportError, emptyRecipe, importFromUrl, isYouTube } from '../core/importer'
+import { ImportError, emptyRecipe, generateFromQuery, importFromUrl, isYouTube } from '../core/importer'
 import type { ShoppingList } from '../core/shopping'
 import type { RecipeStore } from '../core/storage'
 import {
@@ -22,6 +22,7 @@ type Screen =
   | { name: 'library' }
   | { name: 'catalog' }
   | { name: 'import' }
+  | { name: 'search' }
   | { name: 'shopping' }
   | { name: 'detail'; recipe: Recipe }
   | { name: 'editor'; recipe: Recipe; isNew: boolean }
@@ -136,6 +137,8 @@ export class PhoneUi {
         return this.go({ name: 'catalog' })
       case 'go-import':
         return this.go({ name: 'import' })
+      case 'go-search':
+        return this.go({ name: 'search' })
       case 'go-shopping':
         return this.go({ name: 'shopping' })
       case 'new-manual':
@@ -158,6 +161,8 @@ export class PhoneUi {
         return this.render()
       case 'run-import':
         return this.runImport()
+      case 'run-search':
+        return this.runSearch()
       case 'save':
         return this.saveEditor()
       case 'delete':
@@ -366,6 +371,24 @@ export class PhoneUi {
     }
   }
 
+  private async runSearch() {
+    const input = this.root.querySelector<HTMLInputElement>('#query')
+    const query = input?.value.trim() ?? ''
+    if (!query) return this.fail('請先輸入菜名或料理關鍵字。')
+
+    this.busy = true
+    this.error = ''
+    this.render()
+    try {
+      const recipe = await generateFromQuery(query)
+      this.busy = false
+      // 直接進編輯器：AI 生成難免有出入，讓使用者先過目再存。
+      this.go({ name: 'editor', recipe, isNew: true })
+    } catch (err) {
+      this.fail(err instanceof ImportError ? err.message : '生成失敗，請稍後再試。')
+    }
+  }
+
   private async saveEditor() {
     if (this.screen.name !== 'editor') return
     const recipe = this.screen.recipe
@@ -420,10 +443,12 @@ export class PhoneUi {
           ? this.catalog()
           : this.screen.name === 'import'
             ? this.importScreen()
-            : this.screen.name === 'shopping'
-              ? this.shoppingScreen()
-              : this.screen.name === 'detail'
-                ? this.detail(this.screen.recipe)
+            : this.screen.name === 'search'
+              ? this.searchScreen()
+              : this.screen.name === 'shopping'
+                ? this.shoppingScreen()
+                : this.screen.name === 'detail'
+                  ? this.detail(this.screen.recipe)
                 : this.editor(this.screen.recipe, this.screen.isNew)
     this.root.innerHTML = banner + body
   }
@@ -479,6 +504,7 @@ export class PhoneUi {
       }
       <div class="stack" style="margin-top:16px">
         <button class="primary" data-action="go-catalog">瀏覽精選台灣料理</button>
+        <button data-action="go-search">AI 搜尋食譜</button>
         <div class="row">
           <button class="grow" data-action="go-import">貼上連結</button>
           <button class="grow" data-action="new-manual">自己輸入</button>
@@ -633,6 +659,26 @@ export class PhoneUi {
       </div>`
   }
 
+  private searchScreen(): string {
+    return `
+      ${this.topBar('AI 搜尋食譜')}
+      <div class="stack">
+        <div>
+          <div class="label" style="margin-bottom:6px">菜名或料理關鍵字</div>
+          <input id="query" type="text" placeholder="例如：番茄炒蛋" maxlength="60" ${
+            this.busy ? 'disabled' : ''
+          } />
+        </div>
+        <button class="primary" data-action="run-search" ${this.busy ? 'disabled' : ''}>
+          ${this.busy ? '生成中…' : '生成食譜'}
+        </button>
+        <p class="caption">
+          這是請 AI 憑自己的知識直接生成常見做法，不是去查網路上最新的內容——
+          生成結果會先進入編輯畫面讓你確認、調整，確認後才存進食譜庫。
+        </p>
+      </div>`
+  }
+
   private detail(recipe: Recipe): string {
     const ingredients = recipe.ingredients
       .map(
@@ -672,7 +718,13 @@ export class PhoneUi {
       <p class="caption" style="margin:14px 2px">
         ${recipe.steps.length} 步驟 · 約 ${recipe.totalMinutes} 分 ·
         ${DIFFICULTY_LABEL[recipe.difficulty]} · ${recipe.servings} 人份
-        ${recipe.sourceUrl ? `<br>來源：${isYouTube(recipe.sourceUrl) ? 'YouTube' : '網頁'}` : ''}
+        ${
+          recipe.source === 'ai'
+            ? `<br>來源：AI 生成${recipe.sourceUrl ? `（查詢：${esc(recipe.sourceUrl)}）` : ''}`
+            : recipe.sourceUrl
+              ? `<br>來源：${isYouTube(recipe.sourceUrl) ? 'YouTube' : '網頁'}`
+              : ''
+        }
       </p>
 
       <h2>食材</h2>

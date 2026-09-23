@@ -37,6 +37,26 @@ Recipe Glass 的解析後端，跑在 Cloudflare Worker 上。
 
 前端會再做一次欄位正規化（`src/core/importer.ts`），所以模型少給欄位或型別不對不會讓 App 崩潰。
 
+### `POST /generate`
+
+不接任何網址，直接請 AI 憑自己的知識生成食譜——App 裡「AI 搜尋食譜」用的就是這個。
+
+```jsonc
+// 請求
+{ "query": "番茄炒蛋" }
+
+// 回應（200）跟 /extract 一樣的格式
+{ "name": "番茄炒蛋", "servings": 2, "totalMinutes": 15, "ingredients": [...], "steps": [...] }
+
+// 失敗（4xx / 502）
+{ "error": "這看起來不是料理名稱" }
+```
+
+`query` 上限 60 字元。這個端點**不會**真的去查網路上最新的做法，也不是 Google 搜尋結果最上面那個
+AI Overview——那是 Google 網頁自己的介面，沒有公開 API，爬蟲抓會違反服務條款而且畫面隨時會改版。
+這裡給的是語言模型自己知道的「常見標準做法」，品質取決於模型本身的知識，回傳的內容一樣要先進
+App 的編輯畫面讓使用者確認過才會存檔。
+
 ### `GET /health`
 
 回 `{ "ok": true }`，用來確認部署成功。

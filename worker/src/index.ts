@@ -29,34 +29,72 @@ export default {
     if (url.pathname === '/health') {
       return json({ ok: true }, 200, origin)
     }
-    if (request.method !== 'POST' || url.pathname !== '/extract') {
+    if (request.method !== 'POST' || (url.pathname !== '/extract' && url.pathname !== '/generate')) {
       return json({ error: '不支援的路徑或方法' }, 404, origin)
     }
     if (env.APP_TOKEN && request.headers.get('x-app-token') !== env.APP_TOKEN) {
       return json({ error: '未授權' }, 401, origin)
     }
 
-    let body: { url?: unknown }
-    try {
-      body = await request.json()
-    } catch {
-      return json({ error: '請求內容不是有效的 JSON' }, 400, origin)
-    }
-
-    const target = typeof body.url === 'string' ? body.url.trim() : ''
-    const problem = validateTarget(target)
-    if (problem) return json({ error: problem }, 400, origin)
-
-    try {
-      const source = await loadSource(target)
-      const recipe = await extractRecipe(source, env)
-      return json(recipe, 200, origin)
-    } catch (err) {
-      const message = err instanceof Error ? err.message : '解析失敗'
-      console.error('extract 失敗：', message)
-      return json({ error: message }, 502, origin)
-    }
+    if (url.pathname === '/generate') return handleGenerate(request, env, origin)
+    return handleExtract(request, env, origin)
   },
+}
+
+async function handleExtract(request: Request, env: Env, origin: string): Promise<Response> {
+  let body: { url?: unknown }
+  try {
+    body = await request.json()
+  } catch {
+    return json({ error: '請求內容不是有效的 JSON' }, 400, origin)
+  }
+
+  const target = typeof body.url === 'string' ? body.url.trim() : ''
+  const problem = validateTarget(target)
+  if (problem) return json({ error: problem }, 400, origin)
+
+  try {
+    const source = await loadSource(target)
+    const recipe = await extractRecipe(source, env)
+    return json(recipe, 200, origin)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : '解析失敗'
+    console.error('extract 失敗：', message)
+    return json({ error: message }, 502, origin)
+  }
+}
+
+const MAX_QUERY_LENGTH = 60
+
+/**
+ * 直接請 AI 憑自己的知識生成一份食譜，不接搜尋引擎。
+ *
+ * 「抓 Google 搜尋最上面的 AI 回答」做不到——那是 Google 網頁自己的介面
+ * （AI Overview），沒有公開 API，爬蟲抓會違反服務條款而且畫面隨時會改版。
+ * 這裡改成同樣的最終體驗（打幾個字、AI 生出食譜、使用者確認後才存檔），
+ * 只是不真的上網搜尋，而是讓語言模型直接回答，跟匯入連結共用同一套
+ * 「AI 產生 JSON → 前端 normalizeRecipe 收斂 → 進編輯器讓使用者過目」流程。
+ */
+async function handleGenerate(request: Request, env: Env, origin: string): Promise<Response> {
+  let body: { query?: unknown }
+  try {
+    body = await request.json()
+  } catch {
+    return json({ error: '請求內容不是有效的 JSON' }, 400, origin)
+  }
+
+  const query = typeof body.query === 'string' ? body.query.trim() : ''
+  if (!query) return json({ error: '缺少 query 欄位' }, 400, origin)
+  if (query.length > MAX_QUERY_LENGTH) return json({ error: '查詢字串太長' }, 400, origin)
+
+  try {
+    const recipe = await generateRecipe(query, env)
+    return json(recipe, 200, origin)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : '生成失敗'
+    console.error('generate 失敗：', message)
+    return json({ error: message }, 502, origin)
+  }
 }
 
 /**
@@ -175,13 +213,45 @@ const SYSTEM_PROMPT = `你是一位把料理內容整理成穿戴裝置食譜的
 {"name":"","servings":2,"totalMinutes":30,"ingredients":[],"steps":[]}`
 
 async function extractRecipe(source: SourceContent, env: Env): Promise<unknown> {
-  if (!env.AI_API_KEY) throw new Error('伺服器未設定 AI_API_KEY')
-
   const label = source.kind === 'youtube' ? '影片字幕' : '網頁內容'
   const userContent = `標題：${source.title || '（無）'}\n\n以下是${label}：\n\n${source.text}`
+  return runRecipePrompt(SYSTEM_PROMPT, userContent, env)
+}
+
+const GENERATE_SYSTEM_PROMPT = `你是一位熟悉家常料理的廚師，正在幫穿戴裝置的食譜 App 生成食譜。
+
+使用者只會給你一個菜名或料理關鍵字，不會提供任何原始資料。請憑你自己的知識，
+給出這道菜「一般常見、做得出來」的標準做法，以繁體中文（台灣用語）輸出。
+
+規則：
+- 只輸出 JSON，不要加上任何說明文字或 markdown 標記。
+- name：食譜名稱，10 個字以內。
+- servings：份量人數，整數。
+- totalMinutes：總時間（分鐘），整數。
+- ingredients：食材陣列，每項 { "item": "名稱", "amount": "份量" }。份量給常見的量（例如「2 大匙」），不確定就給「適量」。
+- steps：步驟陣列，每項 { "text": "做什麼", "timerSeconds": 秒數, "tip": "提醒" }。
+  - text 每步 60 字以內，寫成動作指令，不要編號。這會顯示在眼鏡上，太長會讀不完。
+  - timerSeconds 只在這步驟通常需要等待或烹煮一段時間時才填（例如「小火燉 20 分鐘」填 1200）。不確定就省略。
+  - tip 只在有值得提醒的細節時才填，沒有就省略。
+- 如果這個關鍵字看起來不是食物或料理名稱，回傳 { "error": "這看起來不是料理名稱" }。
+
+輸出格式：
+{"name":"","servings":2,"totalMinutes":30,"ingredients":[],"steps":[]}`
+
+async function generateRecipe(query: string, env: Env): Promise<unknown> {
+  return runRecipePrompt(GENERATE_SYSTEM_PROMPT, `料理關鍵字：${query}`, env)
+}
+
+/** `/extract` 與 `/generate` 共用的呼叫、重試與解析邏輯，差別只在 system prompt 與使用者內容。 */
+async function runRecipePrompt(
+  systemPrompt: string,
+  userContent: string,
+  env: Env,
+): Promise<unknown> {
+  if (!env.AI_API_KEY) throw new Error('伺服器未設定 AI_API_KEY')
 
   const messages = [
-    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'system', content: systemPrompt },
     { role: 'user', content: userContent },
   ]
 

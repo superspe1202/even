@@ -62,6 +62,47 @@ export async function importFromUrl(url: string): Promise<Recipe> {
   return normalizeRecipe(payload, url, isYouTube(url) ? 'youtube' : 'web')
 }
 
+const MAX_QUERY_LENGTH = 60
+
+/**
+ * 用一個菜名／關鍵字請後端的 AI 直接生成一份食譜。
+ *
+ * 這不是「抓 Google 搜尋最上面的 AI 回答」——那是 Google 網頁自己的介面
+ * （AI Overview），沒有公開 API，爬蟲抓會違反服務條款且畫面隨時會改版。
+ * 這裡改成同樣的最終體驗：打幾個字、AI 生出食譜、使用者確認後才存檔，
+ * 只是 AI 直接憑自己的知識回答，不會真的去查最新的網路內容。
+ */
+export async function generateFromQuery(query: string): Promise<Recipe> {
+  if (!API_BASE) {
+    throw new ImportError('尚未設定解析服務位置（VITE_API_BASE），請見 worker/README.md')
+  }
+  const trimmed = query.trim()
+  if (!trimmed) throw new ImportError('請先輸入菜名或料理關鍵字')
+  if (trimmed.length > MAX_QUERY_LENGTH) throw new ImportError('查詢字串太長')
+
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE}/generate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: trimmed }),
+    })
+  } catch {
+    throw new ImportError('無法連線到解析服務，請確認網路與 app.json 白名單設定')
+  }
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '')
+    throw new ImportError(`生成失敗（${response.status}）${detail ? `：${detail.slice(0, 200)}` : ''}`)
+  }
+
+  const payload = await response.json().catch(() => {
+    throw new ImportError('解析服務回傳的不是有效 JSON')
+  })
+
+  return normalizeRecipe(payload, trimmed, 'ai')
+}
+
 function asString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
