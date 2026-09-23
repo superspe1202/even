@@ -42,6 +42,8 @@ interface EvenEvent {
 /** 計時結束後閃爍多久（毫秒），以及每次切換的間隔。 */
 const ALARM_DURATION_MS = 10_000
 const ALARM_BLINK_MS = 600
+/** 標頭時間更新間隔。只顯示到分鐘，不必秒更新，省藍牙流量。 */
+const CLOCK_TICK_MS = 20_000
 
 export interface RuntimeCallbacks {
   /** 位置變動時通知外層做進度保存與手機端鏡像。 */
@@ -75,6 +77,9 @@ export class GlassesRuntime {
   private writing: Promise<unknown> = Promise.resolve()
   private unsubscribe: (() => void) | null = null
   private timer: StepTimer
+  /** 標頭右側時間，即使使用者不操作也要每隔一段時間自己刷新。 */
+  private clockHandle: ReturnType<typeof setInterval> | null = null
+  private lastHeader = ''
 
   constructor(
     private readonly bridge: GlassesBridge,
@@ -131,11 +136,12 @@ export class GlassesRuntime {
       brightness: BRIGHTNESS.dim,
     }))
 
+    this.lastHeader = headerText(this.title, 0, null, new Date())
     const result = await this.bridge.createStartUpPageContainer(
       new CreateStartUpPageContainer({
         containerTotalNum: 3 + RAIL.slots,
         textObject: [
-          mk(HEADER, 'Recipe Glass', 0, BRIGHTNESS.header),
+          mk(HEADER, this.lastHeader, 0, BRIGHTNESS.header),
           // 所有容器裡必須剛好有一個設 isEventCapture: 1。
           mk(BODY, '在手機上選一份食譜開始。', 1, BRIGHTNESS.bright),
           mk(FOOTER, '雙擊離開', 0, BRIGHTNESS.dim),
@@ -148,6 +154,7 @@ export class GlassesRuntime {
       return false
     }
     this.listen()
+    this.clockHandle = setInterval(() => void this.renderHeader(), CLOCK_TICK_MS)
     return true
   }
 
@@ -268,7 +275,7 @@ export class GlassesRuntime {
     this.syncTimerFor(view)
 
     const stepTotal = this.recipe?.steps.length ?? 0
-    await this.write(HEADER.id, HEADER.name, headerText(this.title, stepTotal, view))
+    await this.renderHeader()
     await this.write(BODY.id, BODY.name, view.body)
     await this.renderRail(currentStepOf(view, stepTotal))
     await this.renderFooter()
@@ -292,6 +299,20 @@ export class GlassesRuntime {
       return
     }
     if (view.page === 0) this.timer.start(seconds)
+  }
+
+  /**
+   * 標頭左半（食譜名／步驟數）加右側時間。
+   *
+   * 由 `render()`（畫面切換）與時間輪詢兩邊共用，兩邊都只在文字真的變了
+   * 才寫入——閒置時每 20 秒醒一次，分鐘沒跳動就不必送這次藍牙封包。
+   */
+  private async renderHeader(): Promise<void> {
+    const stepTotal = this.recipe?.steps.length ?? 0
+    const text = headerText(this.title, stepTotal, this.view, new Date())
+    if (text === this.lastHeader) return
+    this.lastHeader = text
+    await this.write(HEADER.id, HEADER.name, text)
   }
 
   /** 只寫內容或亮度真的變了的格子，避免每翻一頁就六次藍牙往返。 */
@@ -373,6 +394,10 @@ export class GlassesRuntime {
   dispose() {
     this.stopAlarm()
     this.timer.stop()
+    if (this.clockHandle !== null) {
+      clearInterval(this.clockHandle)
+      this.clockHandle = null
+    }
     this.unsubscribe?.()
     this.unsubscribe = null
   }

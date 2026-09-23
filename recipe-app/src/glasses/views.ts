@@ -1,4 +1,4 @@
-import { measureTextWrap } from '@evenrealities/pretext'
+import { getTextWidth, measureTextWrap } from '@evenrealities/pretext'
 import type { Recipe } from '../core/types'
 import { formatClock } from '../core/timer'
 import { paginate, paginateLines } from './paginate'
@@ -100,7 +100,8 @@ export function buildViews(recipe: Recipe): View[] {
   return views
 }
 
-export function headerText(title: string, stepTotal: number, view: View): string {
+function headerLeftText(title: string, stepTotal: number, view: View | null): string {
+  if (!view) return title
   switch (view.kind) {
     case 'ingredients':
       return `${title} · 食材`
@@ -113,6 +114,51 @@ export function headerText(title: string, stepTotal: number, view: View): string
     default:
       return title
   }
+}
+
+export function formatClockTime(now: Date): string {
+  const h = String(now.getHours()).padStart(2, '0')
+  const m = String(now.getMinutes()).padStart(2, '0')
+  return `${h}:${m}`
+}
+
+const SPACE_WIDTH_PX = getTextWidth(' ')
+
+/**
+ * 把時間推到最右邊，中間用空白撐開。
+ *
+ * 容器沒有文字對齊欄位，只能靠空白數量把時間視覺上推到右側。`getTextWidth`
+ * 反推出來的空白數只是起點——量測文件說得很清楚，LVGL 換行是逐字元把
+ * 寬度取整再累加，重複幾十個空白時，累積誤差會跟 `getTextWidth` 的單次
+ * 加總不一樣。所以起點算完之後，用 `measureTextWrap` 量真正組出來的那
+ * 一行，量到會換行就少一個空白重量，直到真的放得下一行為止——保證看
+ * 到的結果一定沒被裁掉，不是賭一個算出來的數字。
+ *
+ * 放不下時間就整個捨棄，不硬擠：烹飪資訊（標題、步驟數）永遠優先。
+ */
+function alignRight(left: string, right: string, innerWidth: number): string {
+  const minimal = `${left} ${right}`
+  if (measureTextWrap(minimal, innerWidth).lineCount > 1) return left
+
+  const gapPx = innerWidth - getTextWidth(left) - getTextWidth(right)
+  let spaces = Math.max(1, Math.floor(gapPx / SPACE_WIDTH_PX))
+  let text = `${left}${' '.repeat(spaces)}${right}`
+  while (spaces > 1 && measureTextWrap(text, innerWidth).lineCount > 1) {
+    spaces -= 1
+    text = `${left}${' '.repeat(spaces)}${right}`
+  }
+  return measureTextWrap(text, innerWidth).lineCount <= 1 ? text : minimal
+}
+
+export function headerText(
+  title: string,
+  stepTotal: number,
+  view: View | null,
+  now: Date,
+  innerWidth = HEADER.w - 2 * HEADER.pad,
+): string {
+  const left = headerLeftText(title, stepTotal, view)
+  return alignRight(left, formatClockTime(now), innerWidth)
 }
 
 /**
