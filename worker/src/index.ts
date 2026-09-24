@@ -1,3 +1,4 @@
+import { GENERIC_FAILURE, UserFacingError } from './errors'
 import { extractTitle, htmlToText } from './readable'
 import { fetchYouTubeContent } from './youtube'
 
@@ -46,7 +47,7 @@ async function handleExtract(request: Request, env: Env, origin: string): Promis
   try {
     body = await request.json()
   } catch {
-    return json({ error: '請求內容不是有效的 JSON' }, 400, origin)
+    return json({ error: '請求格式不對。' }, 400, origin)
   }
 
   const target = typeof body.url === 'string' ? body.url.trim() : ''
@@ -58,9 +59,8 @@ async function handleExtract(request: Request, env: Env, origin: string): Promis
     const recipe = await extractRecipe(source, env)
     return json(recipe, 200, origin)
   } catch (err) {
-    const message = err instanceof Error ? err.message : '解析失敗'
-    console.error('extract 失敗：', message)
-    return json({ error: message }, 502, origin)
+    console.error('extract 失敗：', err)
+    return json({ error: userMessage(err) }, 502, origin)
   }
 }
 
@@ -80,21 +80,25 @@ async function handleGenerate(request: Request, env: Env, origin: string): Promi
   try {
     body = await request.json()
   } catch {
-    return json({ error: '請求內容不是有效的 JSON' }, 400, origin)
+    return json({ error: '請求格式不對。' }, 400, origin)
   }
 
   const query = typeof body.query === 'string' ? body.query.trim() : ''
-  if (!query) return json({ error: '缺少 query 欄位' }, 400, origin)
-  if (query.length > MAX_QUERY_LENGTH) return json({ error: '查詢字串太長' }, 400, origin)
+  if (!query) return json({ error: '請先輸入菜名。' }, 400, origin)
+  if (query.length > MAX_QUERY_LENGTH) return json({ error: '菜名太長了，簡短一點就好。' }, 400, origin)
 
   try {
     const recipe = await generateRecipe(query, env)
     return json(recipe, 200, origin)
   } catch (err) {
-    const message = err instanceof Error ? err.message : '生成失敗'
-    console.error('generate 失敗：', message)
-    return json({ error: message }, 502, origin)
+    console.error('generate 失敗：', err)
+    return json({ error: userMessage(err) }, 502, origin)
   }
+}
+
+/** 只有明確標成可給使用者看的訊息才原樣回傳，其餘一律換成通用的白話。 */
+function userMessage(err: unknown): string {
+  return err instanceof UserFacingError ? err.message : GENERIC_FAILURE
 }
 
 /**
@@ -105,15 +109,15 @@ async function handleGenerate(request: Request, env: Env, origin: string): Promi
  * 被拿去探測其他服務，也讓錯誤訊息更明確。
  */
 function validateTarget(target: string): string | null {
-  if (!target) return '缺少 url 欄位'
+  if (!target) return '沒有收到網址。'
   let parsed: URL
   try {
     parsed = new URL(target)
   } catch {
-    return '網址格式不正確'
+    return '網址看起來不完整，請確認有整段複製。'
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    return '只支援 http / https 連結'
+    return '請貼上網頁連結（http 或 https 開頭）。'
   }
   const host = parsed.hostname.toLowerCase()
   const blocked =
@@ -128,7 +132,7 @@ function validateTarget(target: string): string | null {
     /^192\.168\./.test(host) ||
     /^169\.254\./.test(host) ||
     /^172\.(1[6-9]|2\d|3[01])\./.test(host)
-  if (blocked) return '不接受指向內部網路的網址'
+  if (blocked) return '這個網址沒辦法讀取。'
   return null
 }
 
@@ -158,16 +162,21 @@ async function loadSource(target: string): Promise<SourceContent> {
     },
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   })
-  if (!response.ok) throw new Error(`無法讀取網頁（${response.status}）`)
+  if (!response.ok) {
+    console.error('網頁讀取失敗：', response.status)
+    throw new UserFacingError('這個網頁打不開，可能要登入才看得到，或已經失效。')
+  }
 
   const contentType = response.headers.get('content-type') ?? ''
   if (contentType && !contentType.includes('html') && !contentType.includes('text')) {
-    throw new Error('這個連結不是網頁內容')
+    throw new UserFacingError('這個連結不是網頁，沒辦法讀取。')
   }
 
   const html = await readCapped(response)
   const text = htmlToText(html)
-  if (text.length < 100) throw new Error('這個頁面幾乎沒有文字內容，可能需要登入或由 JavaScript 載入')
+  if (text.length < 100) {
+    throw new UserFacingError('這個網頁幾乎沒有文字，可能要登入才看得到。')
+  }
   return { kind: 'web', title: extractTitle(html), text }
 }
 
@@ -280,7 +289,8 @@ async function runRecipePrompt(
 
   const recipe = parseJsonLoose(content)
   if (recipe && typeof recipe === 'object' && 'error' in recipe) {
-    throw new Error(String((recipe as { error: unknown }).error))
+    // 這是 system prompt 要求 AI 在「不是食譜／不是料理名稱」時回的句子，本來就寫給人看。
+    throw new UserFacingError(String((recipe as { error: unknown }).error))
   }
   return recipe
 }

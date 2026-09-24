@@ -6,6 +6,8 @@
  * YouTube 改版時會壞掉 —— 呼叫端必須把失敗當成正常情況處理，而不是例外。
  */
 
+import { UserFacingError } from './errors'
+
 interface CaptionTrack {
   baseUrl: string
   languageCode: string
@@ -29,7 +31,10 @@ export async function fetchYouTubeContent(url: string): Promise<YouTubeContent> 
       'accept-language': 'zh-TW,zh;q=0.9,en;q=0.8',
     },
   })
-  if (!page.ok) throw new Error(`無法讀取 YouTube 頁面（${page.status}）`)
+  if (!page.ok) {
+    console.error('YouTube 頁面讀取失敗：', page.status)
+    throw new UserFacingError('讀不到這部 YouTube 影片，請確認連結是對的。')
+  }
   const html = await page.text()
 
   const title = decodeEntities(
@@ -40,12 +45,12 @@ export async function fetchYouTubeContent(url: string): Promise<YouTubeContent> 
 
   const tracks = extractCaptionTracks(html)
   if (!tracks.length) {
-    throw new Error('這部影片沒有可用的字幕，無法解析成食譜。')
+    throw new UserFacingError('這部影片沒有字幕，沒辦法整理成食譜。')
   }
 
   const track = pickTrack(tracks)
   const transcript = await fetchTranscript(track.baseUrl)
-  if (!transcript.trim()) throw new Error('字幕內容是空的，無法解析成食譜。')
+  if (!transcript.trim()) throw new UserFacingError('這部影片的字幕是空的，沒辦法整理成食譜。')
 
   return { title, transcript }
 }
@@ -105,7 +110,10 @@ export function pickTrack(tracks: CaptionTrack[]): CaptionTrack {
 
 async function fetchTranscript(baseUrl: string): Promise<string> {
   const response = await fetch(baseUrl)
-  if (!response.ok) throw new Error(`無法讀取字幕（${response.status}）`)
+  if (!response.ok) {
+    console.error('YouTube 字幕讀取失敗：', response.status)
+    throw new UserFacingError('讀不到這部影片的字幕，請稍後再試。')
+  }
   const xml = await response.text()
 
   const lines: string[] = []

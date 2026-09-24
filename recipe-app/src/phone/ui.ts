@@ -8,7 +8,14 @@ import {
   type SortKey,
 } from '../core/catalog'
 import { newId } from '../core/id'
-import { ImportError, emptyRecipe, generateFromQuery, importFromUrl, isYouTube } from '../core/importer'
+import {
+  ImportError,
+  ONLINE_IMPORT_ENABLED,
+  emptyRecipe,
+  generateFromQuery,
+  importFromUrl,
+  isYouTube,
+} from '../core/importer'
 import type { ShoppingList } from '../core/shopping'
 import type { RecipeStore } from '../core/storage'
 import {
@@ -76,6 +83,9 @@ export class PhoneUi {
   private busy = false
   private error = ''
   private toast = ''
+  /** 整頁重繪會清掉輸入框；失敗時要留著使用者打的字，不必重打。 */
+  private draftUrl = ''
+  private draftQuery = ''
 
   constructor(
     private readonly root: HTMLElement,
@@ -349,13 +359,14 @@ export class PhoneUi {
       this.busy = false
       this.flash('已顯示在眼鏡上')
     } catch {
-      this.fail('無法推送到眼鏡，請確認眼鏡已連線。')
+      this.fail('沒辦法送到眼鏡，請確認眼鏡已經連上手機。')
     }
   }
 
   private async runImport() {
     const input = this.root.querySelector<HTMLInputElement>('#url')
     const url = input?.value.trim() ?? ''
+    this.draftUrl = url
     if (!url) return this.fail('請先貼上網址。')
 
     this.busy = true
@@ -364,16 +375,18 @@ export class PhoneUi {
     try {
       const recipe = await importFromUrl(url)
       this.busy = false
+      this.draftUrl = ''
       // 直接進編輯器：AI 解析難免有出入，讓使用者先過目再存。
       this.go({ name: 'editor', recipe, isNew: true })
     } catch (err) {
-      this.fail(err instanceof ImportError ? err.message : '匯入失敗，請稍後再試。')
+      this.fail(err instanceof ImportError ? err.message : '讀取失敗，請稍後再試一次。')
     }
   }
 
   private async runSearch() {
     const input = this.root.querySelector<HTMLInputElement>('#query')
     const query = input?.value.trim() ?? ''
+    this.draftQuery = query
     if (!query) return this.fail('請先輸入菜名或料理關鍵字。')
 
     this.busy = true
@@ -382,10 +395,11 @@ export class PhoneUi {
     try {
       const recipe = await generateFromQuery(query)
       this.busy = false
+      this.draftQuery = ''
       // 直接進編輯器：AI 生成難免有出入，讓使用者先過目再存。
       this.go({ name: 'editor', recipe, isNew: true })
     } catch (err) {
-      this.fail(err instanceof ImportError ? err.message : '生成失敗，請稍後再試。')
+      this.fail(err instanceof ImportError ? err.message : '產生食譜失敗，請稍後再試一次。')
     }
   }
 
@@ -423,9 +437,10 @@ export class PhoneUi {
     try {
       await this.hooks.onCook(recipe)
       this.busy = false
-      this.render()
+      // 眼鏡上的變化手機這邊看不到，不回應一聲使用者會以為沒按到、一直重按。
+      this.flash('已送到眼鏡，戴上就能開始')
     } catch {
-      this.fail('無法推送到眼鏡，請確認眼鏡已連線。')
+      this.fail('沒辦法送到眼鏡，請確認眼鏡已經連上手機。')
     }
   }
 
@@ -500,13 +515,13 @@ export class PhoneUi {
       </div>
       ${
         rows ||
-        '<div class="empty">還沒有食譜。<br>從精選台灣料理挑一道，或貼上連結匯入。</div>'
+        '<div class="empty">還沒有食譜。<br>先從精選台灣料理挑一道開始吧。</div>'
       }
       <div class="stack" style="margin-top:16px">
         <button class="primary" data-action="go-catalog">瀏覽精選台灣料理</button>
-        <button data-action="go-search">AI 搜尋食譜</button>
+        ${ONLINE_IMPORT_ENABLED ? '<button data-action="go-search">AI 搜尋食譜</button>' : ''}
         <div class="row">
-          <button class="grow" data-action="go-import">貼上連結</button>
+          ${ONLINE_IMPORT_ENABLED ? '<button class="grow" data-action="go-import">貼上連結</button>' : ''}
           <button class="grow" data-action="new-manual">自己輸入</button>
         </div>
       </div>`
@@ -645,7 +660,7 @@ export class PhoneUi {
       <div class="stack">
         <div>
           <div class="label" style="margin-bottom:6px">網頁或 YouTube 連結</div>
-          <input id="url" type="url" inputmode="url" placeholder="https://" ${
+          <input id="url" type="url" inputmode="url" placeholder="https://" value="${esc(this.draftUrl)}" ${
             this.busy ? 'disabled' : ''
           } />
         </div>
@@ -653,8 +668,8 @@ export class PhoneUi {
           ${this.busy ? '解析中…' : '開始解析'}
         </button>
         <p class="caption">
-          解析結果會先進入編輯畫面讓你確認，確認後才存進食譜庫。
-          YouTube 影片需要有字幕才能解析。
+          整理好的食譜會先讓你看過、修改，確認後才會存。
+          YouTube 影片要有字幕才讀得到。
         </p>
       </div>`
   }
@@ -665,7 +680,7 @@ export class PhoneUi {
       <div class="stack">
         <div>
           <div class="label" style="margin-bottom:6px">菜名或料理關鍵字</div>
-          <input id="query" type="text" placeholder="例如：番茄炒蛋" maxlength="60" ${
+          <input id="query" type="text" placeholder="例如：番茄炒蛋" maxlength="60" value="${esc(this.draftQuery)}" ${
             this.busy ? 'disabled' : ''
           } />
         </div>
@@ -673,8 +688,7 @@ export class PhoneUi {
           ${this.busy ? '生成中…' : '生成食譜'}
         </button>
         <p class="caption">
-          這是請 AI 憑自己的知識直接生成常見做法，不是去查網路上最新的內容——
-          生成結果會先進入編輯畫面讓你確認、調整，確認後才存進食譜庫。
+          AI 會照常見做法寫一份食譜，存之前你可以先看過、修改。
         </p>
       </div>`
   }
@@ -715,6 +729,9 @@ export class PhoneUi {
       <button class="primary big" data-action="cook" ${this.busy ? 'disabled' : ''}>
         ${this.busy ? '傳送中…' : resuming ? '繼續烹飪（切換過來）' : '開始烹飪'}
       </button>
+      <p class="caption" style="margin:10px 2px 0">
+        眼鏡上：點擊下一步、上滑上一步、雙擊離開。<br>長按換另一道菜；要計時的步驟，點一下開始計時。
+      </p>
       <p class="caption" style="margin:14px 2px">
         ${recipe.steps.length} 步驟 · 約 ${recipe.totalMinutes} 分 ·
         ${DIFFICULTY_LABEL[recipe.difficulty]} · ${recipe.servings} 人份

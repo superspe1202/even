@@ -7,6 +7,13 @@ import type { Difficulty, Ingredient, Recipe, RecipeSource, Step } from './types
  */
 const API_BASE = (import.meta.env.VITE_API_BASE ?? '').replace(/\/+$/, '')
 
+/**
+ * 後端還沒部署時，「貼上連結」和「AI 搜尋食譜」按了一定失敗——
+ * 手機端乾脆不顯示這兩個入口，免得使用者點進去才看到錯誤。
+ */
+export const ONLINE_IMPORT_ENABLED = API_BASE !== ''
+
+/** 訊息會直接顯示給使用者看，一律寫白話，不出現狀態碼或技術名詞。 */
 export class ImportError extends Error {}
 
 export function isYouTube(url: string): boolean {
@@ -25,41 +32,62 @@ export function isYouTube(url: string): boolean {
  * 以及 WebView 的 CORS 會擋掉絕大多數第三方網站。
  */
 export async function importFromUrl(url: string): Promise<Recipe> {
-  if (!API_BASE) {
-    throw new ImportError('尚未設定解析服務位置（VITE_API_BASE），請見 worker/README.md')
-  }
   let parsed: URL
   try {
     parsed = new URL(url)
   } catch {
-    throw new ImportError('網址格式不正確')
+    throw new ImportError('網址看起來不完整，請確認有整段複製。')
   }
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-    throw new ImportError('只支援 http / https 連結')
+    throw new ImportError('請貼上網頁連結（http 或 https 開頭）。')
   }
+  const payload = await postToService('/extract', { url })
+  return normalizeRecipe(payload, url, isYouTube(url) ? 'youtube' : 'web')
+}
+
+/**
+ * 呼叫後端並把各種失敗翻成白話。
+ *
+ * 後端回的 `{ "error": "..." }` 已經是寫給使用者看的句子（例如「這部影片沒有
+ * 字幕」），直接顯示；拿不到就依狀況給一句通用的，絕不把原始回應丟給使用者。
+ */
+async function postToService(path: string, body: unknown): Promise<unknown> {
+  if (!API_BASE) throw new ImportError('這個功能目前還沒開放。')
 
   let response: Response
   try {
-    response = await fetch(`${API_BASE}/extract`, {
+    response = await fetch(`${API_BASE}${path}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ url }),
+      body: JSON.stringify(body),
     })
   } catch {
-    // CORS 失敗與斷線在 fetch 看起來一樣，所以訊息兩種都提。
-    throw new ImportError('無法連線到解析服務，請確認網路與 app.json 白名單設定')
+    throw new ImportError('連不上網路，請確認手機有網路後再試一次。')
   }
 
   if (!response.ok) {
-    const detail = await response.text().catch(() => '')
-    throw new ImportError(`解析失敗（${response.status}）${detail ? `：${detail.slice(0, 200)}` : ''}`)
+    const message = await readErrorMessage(response)
+    if (message) throw new ImportError(message)
+    if (response.status === 401 || response.status === 403) {
+      throw new ImportError('這個功能目前無法使用。')
+    }
+    throw new ImportError('整理食譜時出了點問題，請稍後再試。')
   }
 
-  const payload = await response.json().catch(() => {
-    throw new ImportError('解析服務回傳的不是有效 JSON')
-  })
+  try {
+    return await response.json()
+  } catch {
+    throw new ImportError('整理食譜時出了點問題，請稍後再試。')
+  }
+}
 
-  return normalizeRecipe(payload, url, isYouTube(url) ? 'youtube' : 'web')
+async function readErrorMessage(response: Response): Promise<string> {
+  try {
+    const parsed = (await response.json()) as { error?: unknown }
+    return typeof parsed.error === 'string' ? parsed.error.trim() : ''
+  } catch {
+    return ''
+  }
 }
 
 const MAX_QUERY_LENGTH = 60
@@ -73,33 +101,10 @@ const MAX_QUERY_LENGTH = 60
  * 只是 AI 直接憑自己的知識回答，不會真的去查最新的網路內容。
  */
 export async function generateFromQuery(query: string): Promise<Recipe> {
-  if (!API_BASE) {
-    throw new ImportError('尚未設定解析服務位置（VITE_API_BASE），請見 worker/README.md')
-  }
   const trimmed = query.trim()
-  if (!trimmed) throw new ImportError('請先輸入菜名或料理關鍵字')
-  if (trimmed.length > MAX_QUERY_LENGTH) throw new ImportError('查詢字串太長')
-
-  let response: Response
-  try {
-    response = await fetch(`${API_BASE}/generate`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ query: trimmed }),
-    })
-  } catch {
-    throw new ImportError('無法連線到解析服務，請確認網路與 app.json 白名單設定')
-  }
-
-  if (!response.ok) {
-    const detail = await response.text().catch(() => '')
-    throw new ImportError(`生成失敗（${response.status}）${detail ? `：${detail.slice(0, 200)}` : ''}`)
-  }
-
-  const payload = await response.json().catch(() => {
-    throw new ImportError('解析服務回傳的不是有效 JSON')
-  })
-
+  if (!trimmed) throw new ImportError('請先輸入菜名，例如「番茄炒蛋」。')
+  if (trimmed.length > MAX_QUERY_LENGTH) throw new ImportError('菜名太長了，簡短一點就好。')
+  const payload = await postToService('/generate', { query: trimmed })
   return normalizeRecipe(payload, trimmed, 'ai')
 }
 
@@ -163,7 +168,7 @@ export function normalizeRecipe(raw: unknown, sourceUrl: string, source: RecipeS
     : []
 
   if (!steps.length) {
-    throw new ImportError('沒有解析出任何步驟，這個連結可能不是食譜內容')
+    throw new ImportError('這裡面找不到做菜的步驟，換一個試試看。')
   }
 
   const now = Date.now()

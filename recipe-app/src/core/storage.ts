@@ -1,4 +1,5 @@
 import { ShoppingList } from './shopping'
+import type { RunningTimer } from './timer'
 import type { CookingProgress, Recipe, RecipeIndexEntry } from './types'
 
 /**
@@ -15,6 +16,7 @@ export interface StorageBridge {
 const INDEX_KEY = 'rg.index'
 const PROGRESS_KEY = 'rg.progress'
 const SHOPPING_KEY = 'rg.shopping'
+const TIMERS_KEY = 'rg.timers'
 const RECIPE_PREFIX = 'rg.r.'
 /** 單筆 value 太大有風險，長食譜切塊存。 */
 const CHUNK_SIZE = 40_000
@@ -38,7 +40,19 @@ function parseJson<T>(raw: string, fallback: T): T {
 }
 
 export class RecipeStore {
+  /**
+   * 進度是「讀整份清單 → 改一筆 → 寫回去」，連續快速翻頁時兩次更新可能
+   * 讀到同一份舊清單，後寫的把先寫的蓋掉。排成一列依序做就不會。
+   */
+  private progressQueue: Promise<unknown> = Promise.resolve()
+
   constructor(private readonly bridge: StorageBridge) {}
+
+  private queueProgress(task: () => Promise<void>): Promise<void> {
+    const run = this.progressQueue.then(task)
+    this.progressQueue = run.catch(err => console.error('進度寫入失敗：', err))
+    return run
+  }
 
   async listIndex(): Promise<RecipeIndexEntry[]> {
     const raw = await this.bridge.getLocalStorage(INDEX_KEY)
@@ -115,18 +129,31 @@ export class RecipeStore {
   }
 
   /** 依 `recipeId` 更新或新增一筆，不影響其他食譜的進度。 */
-  async setProgress(progress: Omit<CookingProgress, 'updatedAt'>): Promise<void> {
-    const list = await this.listProgress()
-    const entry: CookingProgress = { ...progress, updatedAt: Date.now() }
-    const at = list.findIndex(p => p.recipeId === progress.recipeId)
-    if (at >= 0) list[at] = entry
-    else list.push(entry)
-    await this.bridge.setLocalStorage(PROGRESS_KEY, JSON.stringify(list))
+  setProgress(progress: Omit<CookingProgress, 'updatedAt'>): Promise<void> {
+    return this.queueProgress(async () => {
+      const list = await this.listProgress()
+      const entry: CookingProgress = { ...progress, updatedAt: Date.now() }
+      const at = list.findIndex(p => p.recipeId === progress.recipeId)
+      if (at >= 0) list[at] = entry
+      else list.push(entry)
+      await this.bridge.setLocalStorage(PROGRESS_KEY, JSON.stringify(list))
+    })
   }
 
-  async clearProgress(recipeId: string): Promise<void> {
-    const list = (await this.listProgress()).filter(p => p.recipeId !== recipeId)
-    await this.bridge.setLocalStorage(PROGRESS_KEY, JSON.stringify(list))
+  clearProgress(recipeId: string): Promise<void> {
+    return this.queueProgress(async () => {
+      const list = (await this.listProgress()).filter(p => p.recipeId !== recipeId)
+      await this.bridge.setLocalStorage(PROGRESS_KEY, JSON.stringify(list))
+    })
+  }
+
+  async getTimers(): Promise<RunningTimer[]> {
+    const parsed = parseJson<unknown>(await this.bridge.getLocalStorage(TIMERS_KEY), [])
+    return Array.isArray(parsed) ? (parsed as RunningTimer[]) : []
+  }
+
+  async saveTimers(timers: RunningTimer[]): Promise<void> {
+    await this.bridge.setLocalStorage(TIMERS_KEY, JSON.stringify(timers))
   }
 
   async getShoppingList(): Promise<ShoppingList> {

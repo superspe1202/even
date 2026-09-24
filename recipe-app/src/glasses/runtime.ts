@@ -4,14 +4,22 @@ import {
   TextContainerProperty,
   TextContainerUpgrade,
 } from '@evenrealities/even_hub_sdk'
-import { StepTimer } from '../core/timer'
+import {
+  bySoonest,
+  remainingSeconds,
+  splitExpired,
+  timerKey,
+  type RunningTimer,
+} from '../core/timer'
 import type { Recipe } from '../core/types'
 import {
+  ALARM_FOOTER,
   alarmBody,
   BODY,
   BRIGHTNESS,
   FOOTER,
   HEADER,
+  IDLE_BODY,
   RAIL,
   buildShoppingViews,
   buildViews,
@@ -19,6 +27,8 @@ import {
   footerText,
   headerText,
   railSlots,
+  timerLabel,
+  type FooterTimer,
   type RailSlot,
   type View,
 } from './views'
@@ -44,17 +54,25 @@ const ALARM_DURATION_MS = 10_000
 const ALARM_BLINK_MS = 600
 /** 標頭時間更新間隔。只顯示到分鐘，不必秒更新，省藍牙流量。 */
 const CLOCK_TICK_MS = 20_000
+const TIMER_TICK_MS = 1_000
+/**
+ * App 關著的時候到期的計時器，重開時還在這段時間內就補響；更早的就不響了，
+ * 免得隔天打開 App 還在對昨天的菜閃「時間到」。
+ */
+const LATE_ALARM_GRACE_MS = 30 * 60_000
 
 export interface RuntimeCallbacks {
-  /** 位置變動時通知外層做進度保存與手機端鏡像。 */
-  onPositionChange?: (recipeId: string, viewIndex: number) => void
+  /** 位置變動時通知外層做進度保存。`finished` 代表走到了「完成」頁。 */
+  onPositionChange?: (recipeId: string, viewIndex: number, finished: boolean) => void
   onExit?: () => void
   /** 長按：使用者想切換到另一道也在煮的食譜，不影響目前這份的進度。 */
   onSwitchRecipe?: () => void
+  /** 計時器開始或到期時通知外層落盤，App 重開也接得回來。 */
+  onTimersChange?: (timers: RunningTimer[]) => void
 }
 
 /**
- * 眼鏡端的執行時期：持有三個容器，負責導覽、計時與事件路由。
+ * 眼鏡端的執行時期：持有所有容器，負責導覽、計時與事件路由。
  *
  * 容器只在啟動時建立一次，之後一律用 `textContainerUpgrade` 就地更新 ——
  * `rebuildPageContainer` 每次都會整頁閃一下，翻步驟時很難看。
@@ -65,6 +83,16 @@ export class GlassesRuntime {
   private title = 'Recipe Glass'
   private views: View[] = []
   private index = 0
+  /** 所有正在倒數的計時器，跨步驟、跨食譜，跟目前顯示哪個畫面無關。 */
+  private timers: RunningTimer[] = []
+  /**
+   * 這次開 App 以來已經響過的步驟。回到那一步時點擊就是下一頁，
+   * 不然剛按掉「時間到」、再點一下想往下走，會變成又重新計時一次。
+   */
+  private finishedTimers = new Set<string>()
+  private timerHandle: ReturnType<typeof setInterval> | null = null
+  /** 等著響的計時器，第一個是正在閃的那個。 */
+  private alarms: RunningTimer[] = []
   private alarmUntil = 0
   private alarmHandle: ReturnType<typeof setInterval> | null = null
   private alarmPhase = false
@@ -78,28 +106,18 @@ export class GlassesRuntime {
   /** 序列化 bridge 寫入，使用者連點時避免兩次更新互相覆蓋。 */
   private writing: Promise<unknown> = Promise.resolve()
   private unsubscribe: (() => void) | null = null
-  private timer: StepTimer
   /** 標頭右側時間，即使使用者不操作也要每隔一段時間自己刷新。 */
   private clockHandle: ReturnType<typeof setInterval> | null = null
   private lastHeader = ''
-  /**
-   * `load()` 傳入的計時器續接時間，只在緊接著的那次 `render()` 用一次。
-   * 一般翻頁（`go()`）不會設定它，所以正常進入新步驟時計時器照常重新起算，
-   * 只有切換食譜或背景還原這種「回到同一步」的情境才會接續而不是重來。
-   */
-  private pendingTimerEndsAt: number | null = null
+  /** 計時中頁尾每秒都會重算，文字沒變就不必再送一次藍牙封包。 */
+  private lastFooter = ''
   /** 有沒有另一道也在煮的食譜可以長按切過去，決定頁尾提示要不要提「長按切換」。 */
   private canSwitch = false
 
   constructor(
     private readonly bridge: GlassesBridge,
     private readonly callbacks: RuntimeCallbacks = {},
-  ) {
-    this.timer = new StepTimer(
-      () => void this.renderFooter(),
-      () => this.startAlarm(),
-    )
-  }
+  ) {}
 
   /** 建立啟動頁。必須在使用任何眼鏡端功能之前成功執行一次。 */
   async init(): Promise<boolean> {
@@ -147,14 +165,15 @@ export class GlassesRuntime {
     }))
 
     this.lastHeader = headerText(this.title, 0, null, new Date())
+    this.lastFooter = this.footer()
     const result = await this.bridge.createStartUpPageContainer(
       new CreateStartUpPageContainer({
         containerTotalNum: 3 + RAIL.slots,
         textObject: [
           mk(HEADER, this.lastHeader, 0, BRIGHTNESS.header),
           // 所有容器裡必須剛好有一個設 isEventCapture: 1。
-          mk(BODY, '在手機上選一份食譜開始。', 1, BRIGHTNESS.bright),
-          mk(FOOTER, '雙擊離開', 0, BRIGHTNESS.dim),
+          mk(BODY, IDLE_BODY, 1, BRIGHTNESS.bright),
+          mk(FOOTER, this.lastFooter, 0, BRIGHTNESS.dim),
           ...rail,
         ],
       }),
@@ -168,35 +187,53 @@ export class GlassesRuntime {
     return true
   }
 
-  /**
-   * 載入食譜並跳到指定畫面（例如還原上次進度、或切換到另一道食譜）。
-   *
-   * `timerEndsAt` 有值且還沒過期時，落在的那個步驟若有計時器會從這個絕對
-   * 時間續接倒數，而不是從整段秒數重新起算——不然切換食譜或背景還原時，
-   * 正在燉的東西看起來會被「重設」成剛開始煮。
-   */
-  async load(recipe: Recipe, viewIndex = 0, timerEndsAt?: number): Promise<void> {
+  /** 載入食譜並跳到指定畫面（例如還原上次進度、或切換到另一道食譜）。 */
+  async load(recipe: Recipe, viewIndex = 0): Promise<void> {
     this.recipe = recipe
     this.title = recipe.name
     this.views = buildViews(recipe)
     this.index = Math.min(Math.max(0, viewIndex), this.views.length - 1)
-    this.pendingTimerEndsAt = timerEndsAt && timerEndsAt > Date.now() ? timerEndsAt : null
     await this.render()
   }
 
   /**
    * 改為顯示採購清單。
    *
-   * 把 recipe 清成 null，計時與進度保存就自動失效 —— 採購清單沒有步驟
-   * 也不需要倒數，不必為它多開一套狀態。
+   * 計時器照樣在跑——逛完超市回來，鍋裡的東西不會因為看了清單就停火。
    */
   async loadShoppingList(lines: string[]): Promise<void> {
     this.recipe = null
     this.title = '採購清單'
-    this.timer.stop()
     this.views = buildShoppingViews(lines)
     this.index = 0
     await this.render()
+  }
+
+  /**
+   * App 重開或背景還原時把計時器放回來。還在跑的接著倒數；關著的時候
+   * 剛到期的補響一次；到期太久的就直接略過。
+   */
+  restoreTimers(saved: RunningTimer[]): void {
+    const now = Date.now()
+    const { expired, running } = splitExpired(saved, now)
+    this.timers = running
+    for (const t of expired) this.finishedTimers.add(timerKey(t.recipeId, t.stepIndex))
+    if (expired.length) this.callbacks.onTimersChange?.(this.timers)
+    this.syncTicker()
+
+    const late = expired.filter(t => now - t.endsAt <= LATE_ALARM_GRACE_MS)
+    if (late.length) this.queueAlarms(late)
+    else void this.renderFooter()
+  }
+
+  /** 食譜被刪掉時，它的計時器也沒必要再響。 */
+  cancelTimersFor(recipeId: string): void {
+    const before = this.timers.length
+    this.timers = this.timers.filter(t => t.recipeId !== recipeId)
+    if (this.timers.length === before) return
+    this.callbacks.onTimersChange?.(this.timers)
+    this.syncTicker()
+    void this.renderFooter()
   }
 
   /**
@@ -217,9 +254,9 @@ export class GlassesRuntime {
     return this.recipe?.id ?? null
   }
 
-  /** 背景還原用：倒數的絕對結束時間。 */
-  get timerEndsAt() {
-    return this.timer.endsAtTimestamp
+  /** 背景保存用。回傳複本，外面拿去序列化不會動到內部狀態。 */
+  get timersSnapshot(): RunningTimer[] {
+    return this.timers.map(t => ({ ...t }))
   }
 
   private get view(): View | null {
@@ -230,30 +267,25 @@ export class GlassesRuntime {
     this.unsubscribe = this.bridge.onEvenHubEvent(event => {
       const sysType = typeOf(event.sysEvent)
       const textType = typeOf(event.textEvent)
+      const is = (type: OsEventTypeList) => sysType === type || textType === type
 
       // 雙擊離開放在最前面：不論事件從哪個信封來，使用者都必須能退出。
-      if (
-        sysType === OsEventTypeList.DOUBLE_CLICK_EVENT ||
-        textType === OsEventTypeList.DOUBLE_CLICK_EVENT
-      ) {
+      if (is(OsEventTypeList.DOUBLE_CLICK_EVENT)) {
         this.dispose()
         this.bridge.shutDownPageContainer(1)
         this.callbacks.onExit?.()
         return
       }
 
-      // 正在響鈴時，任何前進動作都先當作「我知道了」，不翻頁也不切換食譜。
-      if (this.alarmHandle !== null) {
+      // 正在響鈴時，任何動作都先當作「我知道了」，不翻頁也不切換食譜。
+      if (this.alarms.length) {
         if (
           textType === OsEventTypeList.SCROLL_TOP_EVENT ||
           textType === OsEventTypeList.SCROLL_BOTTOM_EVENT ||
-          sysType === OsEventTypeList.CLICK_EVENT ||
-          textType === OsEventTypeList.CLICK_EVENT ||
-          sysType === OsEventTypeList.LONG_PRESS_EVENT ||
-          textType === OsEventTypeList.LONG_PRESS_EVENT
+          is(OsEventTypeList.CLICK_EVENT) ||
+          is(OsEventTypeList.LONG_PRESS_EVENT)
         ) {
-          this.stopAlarm()
-          void this.render()
+          void this.dismissAlarm()
         }
         return
       }
@@ -262,22 +294,21 @@ export class GlassesRuntime {
         void this.go(-1)
         return
       }
+      // 下滑永遠是下一頁——有計時的步驟不想計時，就用下滑跳過。
       if (textType === OsEventTypeList.SCROLL_BOTTOM_EVENT) {
         void this.go(1)
         return
       }
       // 長按：切換到另一道也在煮的食譜。跟點擊、雙擊是不同手勢，不會互相干擾。
-      if (
-        sysType === OsEventTypeList.LONG_PRESS_EVENT ||
-        textType === OsEventTypeList.LONG_PRESS_EVENT
-      ) {
+      if (is(OsEventTypeList.LONG_PRESS_EVENT)) {
         this.callbacks.onSwitchRecipe?.()
         return
       }
       // CLICK_EVENT 是 0，protobuf 會省略零值，所以它是「沒有型別」的退路，
       // 一定要放在所有具名事件之後才判斷。
-      if (sysType === OsEventTypeList.CLICK_EVENT || textType === OsEventTypeList.CLICK_EVENT) {
-        void this.go(1)
+      if (is(OsEventTypeList.CLICK_EVENT)) {
+        if (this.startableSeconds() !== null) this.startTimer()
+        else void this.go(1)
         return
       }
       if (
@@ -306,39 +337,119 @@ export class GlassesRuntime {
 
   private async render(): Promise<void> {
     const view = this.view
-    if (!view) return
-
-    this.stopAlarm()
-    this.syncTimerFor(view)
-
     const stepTotal = this.recipe?.steps.length ?? 0
+
     await this.renderHeader()
-    await this.write(BODY.id, BODY.name, view.body)
-    await this.renderRail(currentStepOf(view, stepTotal))
+    // 響鈴中內文歸閃爍畫面管，這裡不能蓋掉它；響完會再重畫一次。
+    if (!this.alarms.length) await this.write(BODY.id, BODY.name, view?.body ?? IDLE_BODY)
+    await this.renderRail(view ? currentStepOf(view, stepTotal) : -1)
     await this.renderFooter()
 
     // 採購清單沒有進度可保存。
-    if (this.recipe) this.callbacks.onPositionChange?.(this.recipe.id, this.index)
+    if (this.recipe && view) {
+      this.callbacks.onPositionChange?.(this.recipe.id, this.index, view.kind === 'done')
+    }
   }
 
   /**
-   * 進入某個步驟的第一頁才起算倒數；同一步驟內翻頁不重置，
-   * 離開步驟則停止 —— 使用者不必為了計時多做任何操作。
+   * 這一頁點擊是否該「開始計時」而不是下一頁：有計時、還沒開始、還沒響過，
+   * 而且是這一步的最後一頁（步驟內容看完了才開始，不會讀到一半就被搶走點擊）。
    */
-  private syncTimerFor(view: View) {
-    const resumeAt = this.pendingTimerEndsAt
-    this.pendingTimerEndsAt = null
+  private startableSeconds(): number | null {
+    const view = this.view
+    if (!this.recipe || !view || view.kind !== 'step') return null
+    if (view.page !== view.pageCount - 1) return null
+    const seconds = this.recipe.steps[view.stepIndex]?.timerSeconds
+    if (!seconds) return null
+    const key = timerKey(this.recipe.id, view.stepIndex)
+    if (this.finishedTimers.has(key)) return null
+    if (this.timers.some(t => timerKey(t.recipeId, t.stepIndex) === key)) return null
+    return seconds
+  }
 
-    if (view.kind !== 'step') {
-      this.timer.stop()
+  private startTimer() {
+    const view = this.view
+    const seconds = this.startableSeconds()
+    if (!this.recipe || !view || view.kind !== 'step' || seconds === null) return
+    this.timers.push({
+      recipeId: this.recipe.id,
+      recipeName: this.recipe.name,
+      stepIndex: view.stepIndex,
+      stepText: this.recipe.steps[view.stepIndex].text,
+      totalSeconds: seconds,
+      endsAt: Date.now() + seconds * 1000,
+    })
+    this.callbacks.onTimersChange?.(this.timers)
+    this.syncTicker()
+    void this.renderFooter()
+  }
+
+  /** 有計時器在跑才每秒醒來，沒有就完全不耗電。 */
+  private syncTicker() {
+    if (this.timers.length && this.timerHandle === null) {
+      this.timerHandle = setInterval(() => this.tick(), TIMER_TICK_MS)
+    } else if (!this.timers.length && this.timerHandle !== null) {
+      clearInterval(this.timerHandle)
+      this.timerHandle = null
+    }
+  }
+
+  private tick() {
+    const { expired, running } = splitExpired(this.timers, Date.now())
+    if (!expired.length) {
+      void this.renderFooter()
       return
     }
-    const seconds = this.recipe?.steps[view.stepIndex]?.timerSeconds
-    if (!seconds) {
-      this.timer.stop()
+    this.timers = running
+    for (const t of expired) this.finishedTimers.add(timerKey(t.recipeId, t.stepIndex))
+    this.callbacks.onTimersChange?.(this.timers)
+    this.syncTicker()
+    this.queueAlarms(expired)
+  }
+
+  private queueAlarms(list: RunningTimer[]) {
+    const idle = this.alarms.length === 0
+    this.alarms.push(...bySoonest(list))
+    if (idle) this.startAlarm()
+  }
+
+  private startAlarm() {
+    const alarm = this.alarms[0]
+    if (!alarm) return
+    const where =
+      alarm.recipeId === this.recipe?.id
+        ? `步驟 ${alarm.stepIndex + 1}`
+        : `${alarm.recipeName} · 步驟 ${alarm.stepIndex + 1}`
+    const body = alarmBody(where, alarm.stepText)
+
+    this.alarmUntil = Date.now() + ALARM_DURATION_MS
+    this.alarmPhase = true
+    if (this.alarmHandle !== null) clearInterval(this.alarmHandle)
+    this.alarmHandle = setInterval(() => {
+      if (Date.now() >= this.alarmUntil) {
+        void this.dismissAlarm()
+        return
+      }
+      this.alarmPhase = !this.alarmPhase
+      // 整片亮 / 整片暗的交替，是沒有喇叭時唯一能引起注意的手段。
+      void this.write(BODY.id, BODY.name, this.alarmPhase ? body : '')
+    }, ALARM_BLINK_MS)
+    void this.write(BODY.id, BODY.name, body)
+    void this.renderFooter()
+  }
+
+  /** 按掉目前這個；後面還有同時到期的就接著響下一個，都響完才回到原畫面。 */
+  private async dismissAlarm() {
+    if (this.alarmHandle !== null) {
+      clearInterval(this.alarmHandle)
+      this.alarmHandle = null
+    }
+    this.alarms.shift()
+    if (this.alarms.length) {
+      this.startAlarm()
       return
     }
-    if (view.page === 0) this.timer.start(seconds, resumeAt ?? undefined)
+    await this.render()
   }
 
   /**
@@ -355,7 +466,7 @@ export class GlassesRuntime {
     await this.write(HEADER.id, HEADER.name, text)
   }
 
-  /** 只寫內容或亮度真的變了的格子，避免每翻一頁就六次藍牙往返。 */
+  /** 只寫內容或亮度真的變了的格子，避免每翻一頁就五次藍牙往返。 */
   private async renderRail(currentStep: number): Promise<void> {
     const slots = railSlots(this.recipe, currentStep)
     for (let i = 0; i < slots.length; i++) {
@@ -367,51 +478,35 @@ export class GlassesRuntime {
     }
   }
 
-  private async renderFooter(): Promise<void> {
-    const view = this.view
-    if (!view) return
-    const running = this.timer.running
-    const total =
-      running && view.kind === 'step'
-        ? (this.recipe?.steps[view.stepIndex]?.timerSeconds ?? null)
-        : null
-    await this.write(
-      FOOTER.id,
-      FOOTER.name,
-      footerText({
-        remaining: running ? this.timer.remaining() : null,
-        total,
-        view,
-        canSwitch: this.canSwitch,
-      }),
-    )
+  private footer(): string {
+    if (this.alarms.length) return ALARM_FOOTER
+    return footerText({
+      view: this.view,
+      timer: this.footerTimer(),
+      startable: this.startableSeconds(),
+      canSwitch: this.canSwitch,
+    })
   }
 
-  private startAlarm() {
+  /** 頁尾只放得下一個計時器：顯示最快到的那個，其他的用「+N」帶過。 */
+  private footerTimer(): FooterTimer | null {
+    if (!this.timers.length) return null
+    const [first, ...rest] = bySoonest(this.timers)
     const view = this.view
-    if (!view || view.kind !== 'step') return
-    const stepText = this.recipe?.steps[view.stepIndex]?.text ?? ''
-
-    this.alarmUntil = Date.now() + ALARM_DURATION_MS
-    this.alarmPhase = false
-    this.alarmHandle = setInterval(() => {
-      if (Date.now() >= this.alarmUntil) {
-        this.stopAlarm()
-        void this.render()
-        return
-      }
-      this.alarmPhase = !this.alarmPhase
-      // 整片亮 / 整片暗的交替，是沒有喇叭時唯一能引起注意的手段。
-      void this.write(BODY.id, BODY.name, this.alarmPhase ? alarmBody(stepText) : '')
-    }, ALARM_BLINK_MS)
-    void this.write(FOOTER.id, FOOTER.name, '時間到 · 點擊繼續')
-  }
-
-  private stopAlarm() {
-    if (this.alarmHandle !== null) {
-      clearInterval(this.alarmHandle)
-      this.alarmHandle = null
+    const currentStep = view ? currentStepOf(view, this.recipe?.steps.length ?? 0) : -1
+    return {
+      remaining: remainingSeconds(first, Date.now()),
+      total: first.totalSeconds,
+      label: timerLabel(first, this.recipe?.id ?? null, currentStep),
+      others: rest.length,
     }
+  }
+
+  private async renderFooter(): Promise<void> {
+    const text = this.footer()
+    if (text === this.lastFooter) return
+    this.lastFooter = text
+    await this.write(FOOTER.id, FOOTER.name, text)
   }
 
   /** `brightness` 省略表示保持容器目前的亮度，不必每次都送。 */
@@ -437,8 +532,14 @@ export class GlassesRuntime {
   }
 
   dispose() {
-    this.stopAlarm()
-    this.timer.stop()
+    if (this.alarmHandle !== null) {
+      clearInterval(this.alarmHandle)
+      this.alarmHandle = null
+    }
+    if (this.timerHandle !== null) {
+      clearInterval(this.timerHandle)
+      this.timerHandle = null
+    }
     if (this.clockHandle !== null) {
       clearInterval(this.clockHandle)
       this.clockHandle = null

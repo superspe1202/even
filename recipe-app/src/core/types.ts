@@ -65,10 +65,8 @@ export interface RecipeIndexEntry {
  */
 export interface CookingProgress {
   recipeId: string
-  /** -1 代表食材總覽頁，0 以上是步驟索引。 */
+  /** 攤平後的畫面索引（食材頁、各步驟各頁、完成頁串成一列）。 */
   stepIndex: number
-  /** 這一步的計時器絕對結束時間；沒有計時器在跑就是 0。切換或背景還原時用來接續倒數而不是重新起算。 */
-  timerEndsAt: number
   updatedAt: number
 }
 

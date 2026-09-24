@@ -1,6 +1,6 @@
 import { getTextWidth, measureTextWrap } from '@evenrealities/pretext'
 import type { Recipe } from '../core/types'
-import { formatClock } from '../core/timer'
+import { formatClock, formatDuration } from '../core/timer'
 import { paginate, paginateLines } from './paginate'
 
 /** 版面幾何。改這裡就好，分頁會跟著重算。 */
@@ -178,14 +178,39 @@ export function buildShoppingViews(lines: string[]): View[] {
   }))
 }
 
+/** 頁尾要顯示的那一個計時器（多個同時在跑時是最快到的那個）。 */
+export interface FooterTimer {
+  remaining: number
+  total: number
+  /** 空字串代表就是眼前這一步的計時；否則是「步驟2」或別道菜的名字。 */
+  label: string
+  /** 除了這個之外還有幾個在跑。 */
+  others: number
+}
+
 export interface FooterState {
-  /** 剩餘秒數；null 代表這一步沒有計時。 */
-  remaining: number | null
-  /** 這一步設定的總秒數，用來畫進度條。 */
-  total: number | null
-  view: View
+  /** null 代表還沒載入任何食譜（待命畫面）。 */
+  view: View | null
+  timer: FooterTimer | null
+  /** 這一步有計時但還沒開始：它的秒數。有值時頁尾改教使用者怎麼開始計時。 */
+  startable: number | null
   /** 目前有沒有另一道也在煮的食譜可以長按切過去。 */
   canSwitch: boolean
+}
+
+/**
+ * 計時器不是眼前這一步的，就標出是哪一步或哪一道菜——
+ * 否則同時煮兩道菜時，看到「03:10」不會知道是誰的。
+ */
+export function timerLabel(
+  timer: { recipeId: string; recipeName: string; stepIndex: number },
+  recipeId: string | null,
+  currentStep: number,
+): string {
+  if (timer.recipeId === recipeId) {
+    return timer.stepIndex === currentStep ? '' : `步驟${timer.stepIndex + 1}`
+  }
+  return Array.from(timer.recipeName).slice(0, 4).join('')
 }
 
 /**
@@ -209,14 +234,17 @@ const HINT_SHORT_SWITCHABLE = '點擊繼續 · 長按切換 · 雙擊離開'
 const HINT_MINIMAL = '雙擊離開'
 const HINT_MINIMAL_SWITCHABLE = '長按切換食譜 · 雙擊離開'
 
+/** 計時響起時的頁尾。任何手勢都先當「知道了」，不會順手翻頁。 */
+export const ALARM_FOOTER = '時間到 · 點擊知道了'
+
 /**
  * 依畫面種類與「有沒有另一道食譜可切換」決定提示的降級順序。
  *
  * 最後一級固定是純 `HINT_MINIMAL`（不提切換）—— 連最基本的離開方式都要
  * 留得住，切換食譜是加分的資訊，放不下就先犧牲它。
  */
-function hintLadder(view: View, canSwitch: boolean): string[] {
-  if (view.kind === 'done') {
+function hintLadder(view: View | null, canSwitch: boolean): string[] {
+  if (!view || view.kind === 'done') {
     return canSwitch ? [HINT_MINIMAL_SWITCHABLE, HINT_MINIMAL] : [HINT_MINIMAL]
   }
   return canSwitch
@@ -225,49 +253,54 @@ function hintLadder(view: View, canSwitch: boolean): string[] {
 }
 
 /**
+ * 有計時但還沒開始的步驟：頁尾直接教怎麼開始、怎麼跳過。
+ * 這是使用者最需要知道的一件事，所以寧可先犧牲「雙擊離開」。
+ */
+function startLadder(seconds: number): string[] {
+  const d = formatDuration(seconds)
+  return [
+    `點擊開始計時 ${d} · 下滑跳過 · 雙擊離開`,
+    `點擊開始計時 ${d} · 下滑跳過`,
+    `點擊開始計時 ${d}`,
+    '點擊開始計時',
+  ]
+}
+
+/**
  * 頁尾容器只有一行高（34px），LVGL 不會自動把溢出的文字截斷成省略號，
  * 就是整段直接被裁掉、悄悄消失 —— 跟中文缺字一樣的「靜默失敗」。
  *
- * 時間、進度條、頁碼、操作提示四樣疊在一起，某些組合（尤其是長時間格式
- * 「150:00」加滿版進度條加完整提示）量出來會超過一行寬度。與其賭一個
- * 固定的進度條寬度，不如照「使用者最需要看到什麼」的順序，實際量測
- * 每個候選組合，選第一個放得下的 —— 進度條先讓步，再來是把提示逐級
- * 縮短（切換食譜這種加分資訊先讓路），時間本身永遠保留。
+ * 時間、進度條、頁碼、操作提示疊在一起，某些組合（尤其是「150:00」這種
+ * 三位數分鐘加滿版進度條加完整提示）量出來會超過一行寬度。所以照「使用者
+ * 最需要看到什麼」列出所有候選組合，實際量測、選第一個放得下的：每一級
+ * 提示都先讓進度條縮短（8→5→不畫），整條都放不下才把提示換成更短的一級，
+ * 最後才整個捨棄提示——時間本身永遠保留。
  */
-function fitFooter(left: string, hints: string[], innerWidth: number): string {
-  for (const h of hints) {
-    const text = left ? `${left}  ·  ${h}` : h
-    if (measureTextWrap(text, innerWidth).lineCount <= 1) return text
-  }
-  // 連最短的提示都放不下時，至少保住左半部資訊，提示整個捨棄。
-  return left || HINT_MINIMAL
-}
-
 export function footerText(
-  { remaining, total, view, canSwitch }: FooterState,
+  { view, timer, startable, canSwitch }: FooterState,
   innerWidth = FOOTER.w - 2 * FOOTER.pad,
 ): string {
   const pageSuffix =
+    view &&
     (view.kind === 'ingredients' || view.kind === 'step' || view.kind === 'shopping') &&
     view.pageCount > 1
-      ? `  ${view.page + 1}/${view.pageCount}`
+      ? `${view.page + 1}/${view.pageCount}`
       : ''
-  const hints = hintLadder(view, canSwitch)
+  const hints = startable !== null ? startLadder(startable) : hintLadder(view, canSwitch)
 
-  if (remaining === null) {
-    return fitFooter(pageSuffix.trim(), hints, innerWidth)
+  const clock = timer ? `${timer.label ? `${timer.label} ` : ''}${formatClock(timer.remaining)}` : ''
+  const more = timer?.others ? ` +${timer.others}` : ''
+  const compose = (barWidth: number, hint: string | null) => {
+    const bar = timer ? progressBar(timer.remaining, timer.total, barWidth) : ''
+    const left = [`${clock}${bar ? ` ${bar}` : ''}${more}`, pageSuffix].filter(Boolean).join('  ')
+    if (!hint) return left
+    return left ? `${left}  ·  ${hint}` : hint
   }
 
-  const clock = formatClock(remaining)
-  // 進度條寬度依序讓步：8 格放不下就試 5 格，再放不下就乾脆不畫條，只留時間。
-  for (const barWidth of total ? [8, 5, 0] : [0]) {
-    const bar = progressBar(remaining, total ?? 0, barWidth)
-    const left = `${clock}${bar ? ` ${bar}` : ''}${pageSuffix}`
-    const fitted = fitFooter(left, hints, innerWidth)
-    if (measureTextWrap(fitted, innerWidth).lineCount <= 1) return fitted
-  }
-  // 極端情況：退到只顯示時間本身。
-  return clock
+  const bars = timer ? [8, 5, 0] : [0]
+  const candidates = hints.flatMap(hint => bars.map(bar => compose(bar, hint)))
+  candidates.push(compose(0, null))
+  return candidates.find(text => measureTextWrap(text, innerWidth).lineCount <= 1) ?? clock
 }
 
 export interface RailSlot {
@@ -360,7 +393,22 @@ export function currentStepOf(view: View, stepTotal: number): number {
  *
  * 不用 ⏱ —— 跟頁尾進度條同一個理由：那是 emoji，韌體字型很可能沒有，
  * 缺字是靜默略過，不報錯直接消失。
+ *
+ * `where` 一定要寫：響的可能是另一道菜、或早就翻過去的那一步。
  */
-export function alarmBody(step: string): string {
-  return `時 間 到\n\n${step}`
+export function alarmBody(where: string, step: string): string {
+  return `時 間 到\n\n${where}\n${step}`
 }
+
+/**
+ * 待命畫面，也是第一次打開時看到的畫面：直接教四個手勢。
+ * 計時怎麼開始不寫在這裡——等真的走到有計時的那一步，頁尾會當場提示。
+ */
+export const IDLE_BODY = [
+  '在手機上選一道菜，按開始烹飪。',
+  '',
+  '點擊  下一步',
+  '上滑  上一步',
+  '長按  換另一道菜',
+  '雙擊  離開',
+].join('\n')
