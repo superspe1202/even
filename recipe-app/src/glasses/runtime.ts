@@ -88,6 +88,8 @@ export class GlassesRuntime {
    * 只有切換食譜或背景還原這種「回到同一步」的情境才會接續而不是重來。
    */
   private pendingTimerEndsAt: number | null = null
+  /** 有沒有另一道也在煮的食譜可以長按切過去，決定頁尾提示要不要提「長按切換」。 */
+  private canSwitch = false
 
   constructor(
     private readonly bridge: GlassesBridge,
@@ -195,6 +197,16 @@ export class GlassesRuntime {
     this.views = buildShoppingViews(lines)
     this.index = 0
     await this.render()
+  }
+
+  /**
+   * 外層（`main.ts`）在有進度的食譜集合改變時呼叫，更新頁尾要不要提示
+   * 「長按切換」。只在真的變了才重畫頁尾，避免每次翻頁都多寫一次。
+   */
+  setSwitchable(canSwitch: boolean): void {
+    if (this.canSwitch === canSwitch) return
+    this.canSwitch = canSwitch
+    void this.renderFooter()
   }
 
   get currentIndex() {
@@ -366,7 +378,12 @@ export class GlassesRuntime {
     await this.write(
       FOOTER.id,
       FOOTER.name,
-      footerText({ remaining: running ? this.timer.remaining() : null, total, view }),
+      footerText({
+        remaining: running ? this.timer.remaining() : null,
+        total,
+        view,
+        canSwitch: this.canSwitch,
+      }),
     )
   }
 

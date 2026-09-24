@@ -33,6 +33,11 @@ let cookingId: string | null = null
 /** 所有有進度的食譜 id（可能不只一個），用來判斷長按能不能切換、切去哪。 */
 let activeIds = new Set<string>()
 
+/** 每次 `activeIds` 或 `cookingId` 變動都呼叫，讓頁尾的長按提示跟著更新。 */
+function updateSwitchable() {
+  runtime?.setSwitchable([...activeIds].some(id => id !== cookingId))
+}
+
 async function boot() {
   const root = document.querySelector<HTMLDivElement>('#app')
   if (!root) throw new Error('找不到 #app 容器')
@@ -44,6 +49,7 @@ async function boot() {
     onPositionChange: (recipeId, viewIndex) => {
       cookingId = recipeId
       activeIds.add(recipeId)
+      updateSwitchable()
       // 每翻一頁就落盤，中途離開 App 或切去煮另一道也能從同一步接續。
       void store.setProgress({
         recipeId,
@@ -70,16 +76,21 @@ async function boot() {
       const existing = await store.getProgress(recipe.id)
       cookingId = recipe.id
       activeIds.add(recipe.id)
+      updateSwitchable()
       await runtime!.load(recipe, existing?.stepIndex ?? 0, existing?.timerEndsAt)
     },
     onShowShopping: async (lines: string[]) => {
       // 採購清單接管眼鏡畫面，烹飪中的標記要收掉（但進度都還在，之後能接回來）。
       cookingId = null
+      updateSwitchable()
       await runtime!.loadShoppingList(lines)
     },
     cookingRecipeId: () => cookingId,
     otherActiveRecipeIds: () => [...activeIds].filter(id => id !== cookingId),
-    onRecipeDeleted: id => activeIds.delete(id),
+    onRecipeDeleted: id => {
+      activeIds.delete(id)
+      updateSwitchable()
+    },
   })
   await ui.start()
 
@@ -102,9 +113,11 @@ async function switchToOther(store: RecipeStore): Promise<void> {
     // 食譜被刪掉了，這筆進度也沒有意義。
     await store.clearProgress(next.recipeId)
     activeIds.delete(next.recipeId)
+    updateSwitchable()
     return
   }
   cookingId = recipe.id
+  updateSwitchable()
   await runtime!.load(recipe, next.stepIndex, next.timerEndsAt)
 }
 
@@ -126,9 +139,11 @@ async function resume(store: RecipeStore) {
     // 食譜被刪掉了，進度就沒有意義。
     await store.clearProgress(progress.recipeId)
     activeIds.delete(progress.recipeId)
+    updateSwitchable()
     return
   }
   cookingId = recipe.id
+  updateSwitchable()
   await runtime!.load(recipe, progress.stepIndex, progress.timerEndsAt)
 }
 

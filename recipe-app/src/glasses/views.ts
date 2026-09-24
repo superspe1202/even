@@ -184,6 +184,8 @@ export interface FooterState {
   /** 這一步設定的總秒數，用來畫進度條。 */
   total: number | null
   view: View
+  /** 目前有沒有另一道也在煮的食譜可以長按切過去。 */
+  canSwitch: boolean
 }
 
 /**
@@ -201,8 +203,26 @@ function progressBar(remaining: number, total: number, width: number): string {
 }
 
 const HINT_FULL = '點擊下一頁 · 上滑回上頁 · 雙擊離開'
+const HINT_FULL_SWITCHABLE = '點擊下一頁 · 上滑回上頁 · 長按切換食譜 · 雙擊離開'
 const HINT_SHORT = '點擊繼續 · 雙擊離開'
+const HINT_SHORT_SWITCHABLE = '點擊繼續 · 長按切換 · 雙擊離開'
 const HINT_MINIMAL = '雙擊離開'
+const HINT_MINIMAL_SWITCHABLE = '長按切換食譜 · 雙擊離開'
+
+/**
+ * 依畫面種類與「有沒有另一道食譜可切換」決定提示的降級順序。
+ *
+ * 最後一級固定是純 `HINT_MINIMAL`（不提切換）—— 連最基本的離開方式都要
+ * 留得住，切換食譜是加分的資訊，放不下就先犧牲它。
+ */
+function hintLadder(view: View, canSwitch: boolean): string[] {
+  if (view.kind === 'done') {
+    return canSwitch ? [HINT_MINIMAL_SWITCHABLE, HINT_MINIMAL] : [HINT_MINIMAL]
+  }
+  return canSwitch
+    ? [HINT_FULL_SWITCHABLE, HINT_SHORT_SWITCHABLE, HINT_MINIMAL_SWITCHABLE, HINT_MINIMAL]
+    : [HINT_FULL, HINT_SHORT, HINT_MINIMAL]
+}
 
 /**
  * 頁尾容器只有一行高（34px），LVGL 不會自動把溢出的文字截斷成省略號，
@@ -211,17 +231,11 @@ const HINT_MINIMAL = '雙擊離開'
  * 時間、進度條、頁碼、操作提示四樣疊在一起，某些組合（尤其是長時間格式
  * 「150:00」加滿版進度條加完整提示）量出來會超過一行寬度。與其賭一個
  * 固定的進度條寬度，不如照「使用者最需要看到什麼」的順序，實際量測
- * 每個候選組合，選第一個放得下的 —— 進度條先讓步，再來是把導覽提示
- * 縮短，時間本身永遠保留。
+ * 每個候選組合，選第一個放得下的 —— 進度條先讓步，再來是把提示逐級
+ * 縮短（切換食譜這種加分資訊先讓路），時間本身永遠保留。
  */
-function fitFooter(left: string, hint: string, innerWidth: number): string {
-  const candidates = [
-    hint,
-    hint === HINT_FULL ? HINT_SHORT : null,
-    HINT_MINIMAL,
-  ].filter((h): h is string => h !== null)
-
-  for (const h of candidates) {
+function fitFooter(left: string, hints: string[], innerWidth: number): string {
+  for (const h of hints) {
     const text = left ? `${left}  ·  ${h}` : h
     if (measureTextWrap(text, innerWidth).lineCount <= 1) return text
   }
@@ -230,7 +244,7 @@ function fitFooter(left: string, hint: string, innerWidth: number): string {
 }
 
 export function footerText(
-  { remaining, total, view }: FooterState,
+  { remaining, total, view, canSwitch }: FooterState,
   innerWidth = FOOTER.w - 2 * FOOTER.pad,
 ): string {
   const pageSuffix =
@@ -238,10 +252,10 @@ export function footerText(
     view.pageCount > 1
       ? `  ${view.page + 1}/${view.pageCount}`
       : ''
-  const hint = view.kind === 'done' ? HINT_MINIMAL : HINT_FULL
+  const hints = hintLadder(view, canSwitch)
 
   if (remaining === null) {
-    return fitFooter(pageSuffix.trim(), hint, innerWidth)
+    return fitFooter(pageSuffix.trim(), hints, innerWidth)
   }
 
   const clock = formatClock(remaining)
@@ -249,7 +263,7 @@ export function footerText(
   for (const barWidth of total ? [8, 5, 0] : [0]) {
     const bar = progressBar(remaining, total ?? 0, barWidth)
     const left = `${clock}${bar ? ` ${bar}` : ''}${pageSuffix}`
-    const fitted = fitFooter(left, hint, innerWidth)
+    const fitted = fitFooter(left, hints, innerWidth)
     if (measureTextWrap(fitted, innerWidth).lineCount <= 1) return fitted
   }
   // 極端情況：退到只顯示時間本身。
