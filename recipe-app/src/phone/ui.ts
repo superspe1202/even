@@ -18,6 +18,7 @@ import {
 } from '../core/importer'
 import type { ShoppingList } from '../core/shopping'
 import type { RecipeStore } from '../core/storage'
+import { formatDuration } from '../core/timer'
 import {
   DIFFICULTY_LABEL,
   type Difficulty,
@@ -712,7 +713,7 @@ export class PhoneUi {
           <div class="grow">
             <div class="row" style="gap:8px">
               <span class="grow">${esc(s.text)}</span>
-              ${s.timerSeconds ? `<span class="badge accent">${Math.round(s.timerSeconds / 60)} 分</span>` : ''}
+              ${s.timerSeconds ? `<span class="badge accent">${formatDuration(s.timerSeconds)}</span>` : ''}
             </div>
             ${s.tip ? `<div class="caption" style="margin-top:4px">${esc(s.tip)}</div>` : ''}
           </div>
