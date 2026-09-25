@@ -69,6 +69,27 @@ export interface RuntimeCallbacks {
   onSwitchRecipe?: () => void
   /** 計時器開始或到期時通知外層落盤，App 重開也接得回來。 */
   onTimersChange?: (timers: RunningTimer[]) => void
+  /**
+   * 眼鏡上看得到的任何東西變了（翻頁、換菜、計時開始／到期、響鈴開始／按掉）
+   * 都會呼叫，讓手機畫面跟著同步。倒數本身每秒在變，手機自己用 `endsAt` 算，
+   * 這裡不會每秒通知。
+   */
+  onStateChange?: (state: GlassesState) => void
+}
+
+/** 手機端要同步顯示的眼鏡狀態。 */
+export interface GlassesState {
+  mode: 'idle' | 'recipe' | 'shopping'
+  recipeId: string | null
+  /** 標頭左半：食譜名、「採購清單」或 App 名稱。 */
+  title: string
+  /** 目前在哪一步（0 起算）；-1 是食材頁，等於 `stepTotal` 是完成頁。 */
+  step: number
+  stepTotal: number
+  /** 所有在跑的計時器，最快到的排前面。 */
+  timers: RunningTimer[]
+  /** 正在閃「時間到」的那個；沒有就是 null。 */
+  alarm: RunningTimer | null
 }
 
 /**
@@ -209,6 +230,22 @@ export class GlassesRuntime {
     await this.render()
   }
 
+  /** 手機端點某一步：跳到那一步的第一頁。找不到（步驟被刪了）就不動。 */
+  async jumpToStep(stepIndex: number): Promise<void> {
+    const target = this.views.findIndex(
+      v => v.kind === 'step' && v.stepIndex === stepIndex && v.page === 0,
+    )
+    if (target >= 0) await this.jumpTo(target)
+  }
+
+  /** 某一步在眼鏡上的畫面索引，給外層切換食譜時直接載到那一步用。 */
+  static viewIndexOfStep(recipe: Recipe, stepIndex: number): number {
+    const target = buildViews(recipe).findIndex(
+      v => v.kind === 'step' && v.stepIndex === stepIndex && v.page === 0,
+    )
+    return Math.max(0, target)
+  }
+
   /**
    * App 重開或背景還原時把計時器放回來。還在跑的接著倒數；關著的時候
    * 剛到期的補響一次；到期太久的就直接略過。
@@ -224,6 +261,7 @@ export class GlassesRuntime {
     const late = expired.filter(t => now - t.endsAt <= LATE_ALARM_GRACE_MS)
     if (late.length) this.queueAlarms(late)
     else void this.renderFooter()
+    this.notify()
   }
 
   /** 食譜被刪掉時，它的計時器也沒必要再響。 */
@@ -234,6 +272,7 @@ export class GlassesRuntime {
     this.callbacks.onTimersChange?.(this.timers)
     this.syncTicker()
     void this.renderFooter()
+    this.notify()
   }
 
   /**
@@ -252,6 +291,24 @@ export class GlassesRuntime {
 
   get loadedRecipeId() {
     return this.recipe?.id ?? null
+  }
+
+  get state(): GlassesState {
+    const view = this.view
+    const stepTotal = this.recipe?.steps.length ?? 0
+    return {
+      mode: this.recipe ? 'recipe' : this.views.length ? 'shopping' : 'idle',
+      recipeId: this.recipe?.id ?? null,
+      title: this.title,
+      step: view ? currentStepOf(view, stepTotal) : -1,
+      stepTotal,
+      timers: bySoonest(this.timers),
+      alarm: this.alarms[0] ?? null,
+    }
+  }
+
+  private notify() {
+    this.callbacks.onStateChange?.(this.state)
   }
 
   /** 背景保存用。回傳複本，外面拿去序列化不會動到內部狀態。 */
@@ -307,8 +364,10 @@ export class GlassesRuntime {
       // CLICK_EVENT 是 0，protobuf 會省略零值，所以它是「沒有型別」的退路，
       // 一定要放在所有具名事件之後才判斷。
       if (is(OsEventTypeList.CLICK_EVENT)) {
-        if (this.startableSeconds() !== null) this.startTimer()
-        else void this.go(1)
+        const view = this.view
+        if (this.recipe && view?.kind === 'step' && this.startableSeconds() !== null) {
+          this.startTimerFor(this.recipe, view.stepIndex)
+        } else void this.go(1)
         return
       }
       if (
@@ -349,6 +408,7 @@ export class GlassesRuntime {
     if (this.recipe && view) {
       this.callbacks.onPositionChange?.(this.recipe.id, this.index, view.kind === 'done')
     }
+    this.notify()
   }
 
   /**
@@ -367,21 +427,29 @@ export class GlassesRuntime {
     return seconds
   }
 
-  private startTimer() {
-    const view = this.view
-    const seconds = this.startableSeconds()
-    if (!this.recipe || !view || view.kind !== 'step' || seconds === null) return
+  /**
+   * 開始某道菜某一步的計時。眼鏡上點擊、手機上按「開始計時」都走這裡，
+   * 所以不限於眼鏡目前顯示的那道菜。已經在跑就不重複開；響過的可以再開一次
+   * （從手機明確按下去，就是想再計一次）。
+   */
+  startTimerFor(recipe: Recipe, stepIndex: number): void {
+    const seconds = recipe.steps[stepIndex]?.timerSeconds
+    if (!seconds) return
+    const key = timerKey(recipe.id, stepIndex)
+    if (this.timers.some(t => timerKey(t.recipeId, t.stepIndex) === key)) return
+    this.finishedTimers.delete(key)
     this.timers.push({
-      recipeId: this.recipe.id,
-      recipeName: this.recipe.name,
-      stepIndex: view.stepIndex,
-      stepText: this.recipe.steps[view.stepIndex].text,
+      recipeId: recipe.id,
+      recipeName: recipe.name,
+      stepIndex,
+      stepText: recipe.steps[stepIndex].text,
       totalSeconds: seconds,
       endsAt: Date.now() + seconds * 1000,
     })
     this.callbacks.onTimersChange?.(this.timers)
     this.syncTicker()
     void this.renderFooter()
+    this.notify()
   }
 
   /** 有計時器在跑才每秒醒來，沒有就完全不耗電。 */
@@ -405,6 +473,7 @@ export class GlassesRuntime {
     this.callbacks.onTimersChange?.(this.timers)
     this.syncTicker()
     this.queueAlarms(expired)
+    this.notify()
   }
 
   private queueAlarms(list: RunningTimer[]) {
@@ -436,10 +505,15 @@ export class GlassesRuntime {
     }, ALARM_BLINK_MS)
     void this.write(BODY.id, BODY.name, body)
     void this.renderFooter()
+    this.notify()
   }
 
-  /** 按掉目前這個；後面還有同時到期的就接著響下一個，都響完才回到原畫面。 */
-  private async dismissAlarm() {
+  /**
+   * 按掉目前這個；後面還有同時到期的就接著響下一個，都響完才回到原畫面。
+   * 手機上的「知道了」也呼叫這個。
+   */
+  async dismissAlarm(): Promise<void> {
+    if (!this.alarms.length) return
     if (this.alarmHandle !== null) {
       clearInterval(this.alarmHandle)
       this.alarmHandle = null

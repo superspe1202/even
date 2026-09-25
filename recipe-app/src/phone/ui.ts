@@ -18,7 +18,8 @@ import {
 } from '../core/importer'
 import type { ShoppingList } from '../core/shopping'
 import type { RecipeStore } from '../core/storage'
-import { formatDuration } from '../core/timer'
+import { formatClock, formatDuration, remainingSeconds, timerKey } from '../core/timer'
+import type { GlassesState } from '../glasses/runtime'
 import {
   DIFFICULTY_LABEL,
   type Difficulty,
@@ -35,16 +36,44 @@ type Screen =
   | { name: 'detail'; recipe: Recipe }
   | { name: 'editor'; recipe: Recipe; isNew: boolean }
 
+/** 還沒煮完的一道菜，以及做到哪一步。 */
+export interface ActiveDish {
+  recipeId: string
+  name: string
+  /** 0 起算；-1 是食材頁。 */
+  step: number
+  stepTotal: number
+}
+
 export interface PhoneUiHooks {
-  /** 把食譜推到眼鏡上開始烹飪。 */
+  /** 把食譜推到眼鏡上開始烹飪；已經煮到一半就接續。「換到這道」也用這個。 */
   onCook: (recipe: Recipe) => Promise<void>
+  /** 眼鏡直接跳到某道菜的某一步（不是眼鏡上那道就先換過去）。 */
+  onJumpToStep: (recipe: Recipe, stepIndex: number) => Promise<void>
+  onStartTimer: (recipe: Recipe, stepIndex: number) => void
+  onDismissAlarm: () => void
   /** 把採購清單推到眼鏡上顯示。 */
   onShowShopping: (lines: string[]) => Promise<void>
+  glassesState: () => GlassesState
   cookingRecipeId: () => string | null
-  /** 有進度、但目前沒有顯示在眼鏡上的食譜 id——在眼鏡上長按可以切過去接續。 */
-  otherActiveRecipeIds: () => string[]
+  /** 有進度、但目前沒有顯示在眼鏡上的菜——在眼鏡上長按或手機上按一下可以切過去。 */
+  otherActiveDishes: () => ActiveDish[]
   /** 食譜被刪除時通知外層，清掉對應的進度追蹤。 */
   onRecipeDeleted: (id: string) => void
+}
+
+/** 「步驟 3/6」「食材」「完成」——跟眼鏡標頭同一種說法。 */
+function stepLabel(step: number, stepTotal: number): string {
+  if (step < 0) return '食材'
+  if (step >= stepTotal) return '完成'
+  return `步驟 ${step + 1}/${stepTotal}`
+}
+
+/** 倒數文字。手機每秒只改這些元素的文字，不整頁重繪，按鈕才不會按到一半消失。 */
+function countdown(endsAt: number): string {
+  return `<span class="countdown" data-ends="${endsAt}">${formatClock(
+    remainingSeconds({ endsAt }, Date.now()),
+  )}</span>`
 }
 
 const esc = (s: string) =>
@@ -87,6 +116,8 @@ export class PhoneUi {
   /** 整頁重繪會清掉輸入框；失敗時要留著使用者打的字，不必重打。 */
   private draftUrl = ''
   private draftQuery = ''
+  /** 上一次看到的「時間到」，換了新的才震動，同一個不重複震。 */
+  private lastAlarmKey = ''
 
   constructor(
     private readonly root: HTMLElement,
@@ -96,6 +127,35 @@ export class PhoneUi {
     this.root.addEventListener('click', e => void this.onClick(e))
     this.root.addEventListener('input', e => this.onInput(e))
     this.root.addEventListener('change', e => void this.onChange(e))
+    // 倒數每秒走一格。只改數字，不動其他元素。
+    window.setInterval(() => this.tickCountdowns(), 1000)
+  }
+
+  /**
+   * 眼鏡狀態變了（翻頁、換菜、計時開始或到期、響鈴）時由外層呼叫。
+   *
+   * 食譜庫與詳情頁沒有輸入框，整頁重繪最簡單；其他畫面可能正在打字，
+   * 只更新最上面的「時間到」橫幅，不去動輸入框。
+   */
+  syncFromGlasses() {
+    const alarm = this.hooks.glassesState().alarm
+    const key = alarm ? `${timerKey(alarm.recipeId, alarm.stepIndex)}@${alarm.endsAt}` : ''
+    if (key && key !== this.lastAlarmKey) navigator.vibrate?.([400, 200, 400])
+    this.lastAlarmKey = key
+
+    if (this.screen.name === 'library' || this.screen.name === 'detail') this.render()
+    else {
+      const live = this.root.querySelector('#live')
+      if (live) live.innerHTML = this.alarmHtml()
+    }
+  }
+
+  private tickCountdowns() {
+    const now = Date.now()
+    for (const el of this.root.querySelectorAll<HTMLElement>('[data-ends]')) {
+      const text = formatClock(remainingSeconds({ endsAt: Number(el.dataset.ends) }, now))
+      if (el.textContent !== text) el.textContent = text
+    }
   }
 
   async start() {
@@ -180,6 +240,17 @@ export class PhoneUi {
         return this.deleteRecipe()
       case 'cook':
         return this.cook()
+      case 'switch-to':
+        return this.switchTo(id!)
+      case 'jump-step':
+        return this.jumpStep(Number(id))
+      case 'start-timer':
+        if (this.screen.name === 'detail') {
+          this.hooks.onStartTimer(this.screen.recipe, Number(id))
+        }
+        return
+      case 'dismiss-alarm':
+        return this.hooks.onDismissAlarm()
       case 'add-to-shopping':
         return this.addToShopping()
       case 'show-shopping-on-glasses':
@@ -445,6 +516,27 @@ export class PhoneUi {
     }
   }
 
+  /** 手機上按「換到這道」：眼鏡換過去，回到那道菜上次的那一步。 */
+  private async switchTo(recipeId: string) {
+    const recipe = await this.store.get(recipeId)
+    if (!recipe) return
+    try {
+      await this.hooks.onCook(recipe)
+    } catch {
+      this.fail('沒辦法送到眼鏡，請確認眼鏡已經連上手機。')
+    }
+  }
+
+  /** 詳情頁點某一步：眼鏡直接跳過去。畫面會隨眼鏡狀態自動更新，不必另外提示。 */
+  private async jumpStep(stepIndex: number) {
+    if (this.screen.name !== 'detail') return
+    try {
+      await this.hooks.onJumpToStep(this.screen.recipe, stepIndex)
+    } catch {
+      this.fail('沒辦法送到眼鏡，請確認眼鏡已經連上手機。')
+    }
+  }
+
   // ---------- 畫面 ----------
 
   private render() {
@@ -466,7 +558,69 @@ export class PhoneUi {
                 : this.screen.name === 'detail'
                   ? this.detail(this.screen.recipe)
                 : this.editor(this.screen.recipe, this.screen.isNew)
-    this.root.innerHTML = banner + body
+    this.root.innerHTML = `<div id="live">${this.alarmHtml()}</div>` + banner + body
+  }
+
+  /** 「時間到」橫幅。任何畫面都顯示，黏在最上面，眼鏡沒戴著也看得到。 */
+  private alarmHtml(): string {
+    const alarm = this.hooks.glassesState().alarm
+    if (!alarm) return ''
+    return `
+      <div class="alarm row">
+        <div class="grow">
+          <div class="alarm-title">時間到</div>
+          <div>${esc(alarm.recipeName)} · 步驟 ${alarm.stepIndex + 1}</div>
+          <div class="caption alarm-step">${esc(alarm.stepText)}</div>
+        </div>
+        <button class="small" data-action="dismiss-alarm">知道了</button>
+      </div>`
+  }
+
+  /**
+   * 「眼鏡上」面板：眼鏡現在顯示什麼、所有在跑的計時器、還有哪幾道菜可以
+   * 換過去。沒在煮東西時整塊不出現。
+   */
+  private livePanel(): string {
+    const state = this.hooks.glassesState()
+    const others = this.hooks.otherActiveDishes()
+    if (state.mode === 'idle' && !state.timers.length && !others.length) return ''
+
+    const now =
+      state.mode === 'recipe' && state.recipeId
+        ? `<a class="live-row tappable" data-action="open" data-id="${esc(state.recipeId)}">
+             <span class="grow"><b>${esc(state.title)}</b> · ${stepLabel(state.step, state.stepTotal)}</span>
+             <span class="chev">${icon.chevron}</span>
+           </a>`
+        : state.mode === 'shopping'
+          ? '<div class="live-row"><b>採購清單</b></div>'
+          : '<div class="live-row caption">眼鏡上沒有開著食譜</div>'
+
+    const timers = state.timers
+      .map(
+        t => `
+        <a class="live-row tappable" data-action="open" data-id="${esc(t.recipeId)}">
+          <span class="grow">${esc(t.recipeName)} · 步驟 ${t.stepIndex + 1}</span>
+          ${countdown(t.endsAt)}
+        </a>`,
+      )
+      .join('')
+
+    const switches = others
+      .map(
+        d => `
+        <button class="small switch" data-action="switch-to" data-id="${esc(d.recipeId)}">
+          換到 ${esc(d.name)} · ${stepLabel(d.step, d.stepTotal)}
+        </button>`,
+      )
+      .join('')
+
+    return `
+      <div class="card live">
+        <div class="label">眼鏡上</div>
+        ${now}
+        ${timers ? `<div class="label" style="margin-top:10px">計時中</div>${timers}` : ''}
+        ${switches ? `<div class="stack" style="margin-top:12px;gap:8px">${switches}</div>` : ''}
+      </div>`
   }
 
   private topBar(title: string, right = ''): string {
@@ -482,7 +636,7 @@ export class PhoneUi {
 
   private library(): string {
     const cooking = this.hooks.cookingRecipeId()
-    const others = new Set(this.hooks.otherActiveRecipeIds())
+    const others = new Set(this.hooks.otherActiveDishes().map(d => d.recipeId))
     const pending = this.shopping.pending.length
     const rows = this.index
       .map(
@@ -514,6 +668,7 @@ export class PhoneUi {
           </button>
         </div>
       </div>
+      ${this.livePanel()}
       ${
         rows ||
         '<div class="empty">還沒有食譜。<br>先從精選台灣料理挑一道開始吧。</div>'
@@ -705,34 +860,59 @@ export class PhoneUi {
       )
       .join('')
 
+    const state = this.hooks.glassesState()
+    const onGlasses = state.mode === 'recipe' && state.recipeId === recipe.id
+    const waiting = this.hooks.otherActiveDishes().find(d => d.recipeId === recipe.id)
+    // 在眼鏡上、或煮到一半的菜，步驟可以點；只是瀏覽的菜點了不會突然推到眼鏡上。
+    const live = onGlasses || !!waiting
+    const current = onGlasses ? state.step : (waiting?.step ?? null)
+
     const steps = recipe.steps
-      .map(
-        (s, n) => `
-        <div class="row" style="align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid var(--hairline)">
+      .map((s, n) => {
+        const running = state.timers.find(t => t.recipeId === recipe.id && t.stepIndex === n)
+        const timer = !s.timerSeconds
+          ? ''
+          : running
+            ? `<span class="badge accent">${countdown(running.endsAt)}</span>`
+            : live
+              ? `<button class="small timer-btn" data-action="start-timer" data-id="${n}">開始計時 ${formatDuration(s.timerSeconds)}</button>`
+              : `<span class="badge accent">${formatDuration(s.timerSeconds)}</span>`
+        const tag = live ? 'a' : 'div'
+        const attrs = live ? ` data-action="jump-step" data-id="${n}"` : ''
+        return `
+        <${tag} class="step-row${live ? ' tappable' : ''}${n === current ? ' current' : ''}"${attrs}>
           <span class="step-no">${n + 1}</span>
           <div class="grow">
-            <div class="row" style="gap:8px">
-              <span class="grow">${esc(s.text)}</span>
-              ${s.timerSeconds ? `<span class="badge accent">${formatDuration(s.timerSeconds)}</span>` : ''}
-            </div>
+            <div>${esc(s.text)}</div>
             ${s.tip ? `<div class="caption" style="margin-top:4px">${esc(s.tip)}</div>` : ''}
+            ${timer ? `<div style="margin-top:8px">${timer}</div>` : ''}
+            ${n === current ? `<div class="here">${onGlasses ? '眼鏡正在這一步' : '上次做到這一步'}</div>` : ''}
           </div>
-        </div>`,
-      )
+        </${tag}>`
+      })
       .join('')
 
-    const resuming =
-      recipe.id !== this.hooks.cookingRecipeId() &&
-      this.hooks.otherActiveRecipeIds().includes(recipe.id)
+    const cookLabel = this.busy
+      ? '傳送中…'
+      : onGlasses
+        ? '正在眼鏡上顯示'
+        : waiting
+          ? `換到這道（${stepLabel(waiting.step, waiting.stepTotal)}）`
+          : '開始烹飪'
 
     return `
       ${this.topBar(recipe.name, '<button class="ghost" data-action="edit">編輯</button>')}
-      <button class="primary big" data-action="cook" ${this.busy ? 'disabled' : ''}>
-        ${this.busy ? '傳送中…' : resuming ? '繼續烹飪（切換過來）' : '開始烹飪'}
+      <button class="primary big" data-action="cook" ${this.busy || onGlasses ? 'disabled' : ''}>
+        ${cookLabel}
       </button>
       <p class="caption" style="margin:10px 2px 0">
-        眼鏡上：點擊下一步、上滑上一步、雙擊離開。<br>長按換另一道菜；要計時的步驟，點一下開始計時。
+        ${
+          live
+            ? '點下面的步驟，眼鏡就跳到那一步；<br>要計時的步驟也可以在這裡按開始。'
+            : '眼鏡上：點擊下一步、上滑上一步、雙擊離開。<br>長按換另一道菜；要計時的步驟，點一下開始計時。'
+        }
       </p>
+      <div style="margin-top:14px">${this.livePanel()}</div>
       <p class="caption" style="margin:14px 2px">
         ${recipe.steps.length} 步驟 · 約 ${recipe.totalMinutes} 分 ·
         ${DIFFICULTY_LABEL[recipe.difficulty]} · ${recipe.servings} 人份

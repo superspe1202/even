@@ -22,7 +22,7 @@ export function timerKey(recipeId: string, stepIndex: number): string {
   return `${recipeId}#${stepIndex}`
 }
 
-export function remainingSeconds(timer: RunningTimer, now: number): number {
+export function remainingSeconds(timer: Pick<RunningTimer, 'endsAt'>, now: number): number {
   return Math.max(0, Math.ceil((timer.endsAt - now) / 1000))
 }
 
