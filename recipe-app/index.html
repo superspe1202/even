@@ -59,10 +59,10 @@
       .stack { display: flex; flex-direction: column; gap: 10px; }
       .grow { flex: 1; min-width: 0; }
       .block { display: block; }
-      .caption { font-size: 13px; color: var(--text-dim); }
+      .caption { font-size: 14px; color: var(--text-dim); }
       .title-row { font-size: 17px; font-weight: 500; }
       .label {
-        font-size: 11px; font-weight: 500; letter-spacing: 0.04em;
+        font-size: 12px; font-weight: 500; letter-spacing: 0.04em;
         text-transform: uppercase; color: var(--text-dim);
       }
       .struck { color: var(--text-dim); text-decoration: line-through; }
@@ -131,11 +131,42 @@
         background: rgba(192, 57, 43, 0.12); color: var(--danger);
         border-radius: var(--radius); padding: 12px; margin-bottom: 14px;
       }
-      .toast {
+      /* 提示浮在上方，不佔版面，出現、消失時內容不會跳。 */
+      #toast {
+        position: fixed; left: 16px; right: 16px; top: calc(12px + env(safe-area-inset-top, 0px));
+        max-width: 688px; margin: 0 auto; z-index: 20;
         background: #232323; color: #ffffff; border-radius: var(--radius);
-        padding: 12px; margin-bottom: 14px; font-size: 14px;
+        padding: 12px 14px; font-size: 15px; text-align: center;
+        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.2);
+        opacity: 0; transform: translateY(-8px); pointer-events: none;
+        transition: opacity 0.2s, transform 0.2s;
       }
-      @media (prefers-color-scheme: dark) { .toast { background: #333333; } }
+      #toast.show { opacity: 1; transform: none; }
+      @media (prefers-color-scheme: dark) { #toast { background: #333333; } }
+
+      /* 食譜庫：新增食譜的入口一排排開。 */
+      .tiles { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; }
+      button.tile {
+        display: flex; flex-direction: column; align-items: center; gap: 6px;
+        padding: 14px 4px 12px; background: var(--surface); font-size: 14px; font-weight: 500;
+      }
+      button.tile svg { color: var(--text); }
+
+      /* 詳情頁 */
+      .chips.meta { margin: -8px 0 16px; }
+      .chips.meta .chip { padding: 5px 12px; font-size: 13px; cursor: default; }
+      .now-card {
+        display: flex; align-items: center; gap: 12px;
+        background: var(--accent); color: #232323; border-radius: var(--radius); padding: 14px 16px;
+      }
+      .now-title { font-weight: 700; font-size: 17px; }
+      .now-card button { background: #232323; color: #ffffff; }
+
+      button.added {
+        display: inline-flex; align-items: center; gap: 4px;
+        background: transparent; color: var(--text-dim);
+      }
+      input.mini.short { width: 60px; }
 
       /* 眼鏡同步：時間到橫幅黏在最上面，捲到哪都看得到。 */
       #live { position: sticky; top: 8px; z-index: 5; }

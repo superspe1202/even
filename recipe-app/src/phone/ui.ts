@@ -97,6 +97,11 @@ const icon = {
   close: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
   up: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>',
   down: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>',
+  book: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H19v14H5.5A1.5 1.5 0 0 0 4 19.5z"/><path d="M4 19.5A1.5 1.5 0 0 0 5.5 21H19v-3"/><path d="M12 8.2c-1-1.4-3.2-.8-3.2 1 0 1.6 3.2 3.3 3.2 3.3s3.2-1.7 3.2-3.3c0-1.8-2.2-2.4-3.2-1z"/></svg>',
+  sparkle: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 4.9L19 9.7l-5.2 1.8L12 16.4l-1.8-4.9L5 9.7l5.2-1.8z"/><path d="M18.5 15.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg>',
+  link: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>',
+  pencil: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>',
+  check: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
 }
 
 /**
@@ -119,6 +124,9 @@ export class PhoneUi {
   private draftQuery = ''
   /** AI 搜尋給的幾種做法。挑了一種進編輯器後按返回，還能回來換另一種。 */
   private searchResults: RecipeOption[] = []
+  private editorBaseline = ''
+  /** 食譜庫的搜尋字。食譜超過一個畫面才會出現搜尋框。 */
+  private librarySearch = ''
   /** 上一次看到的「時間到」，換了新的才震動，同一個不重複震。 */
   private lastAlarmKey = ''
 
@@ -174,6 +182,8 @@ export class PhoneUi {
   private go(screen: Screen) {
     this.screen = screen
     this.error = ''
+    // 記下進編輯器時的樣子，按返回時才判斷得出有沒有改過、要不要提醒。
+    if (screen.name === 'editor') this.editorBaseline = JSON.stringify(screen.recipe)
     this.render()
     window.scrollTo(0, 0)
   }
@@ -184,14 +194,25 @@ export class PhoneUi {
     this.render()
   }
 
+  /**
+   * 短暫提示。浮在畫面上方、不佔版面，出現和消失時內容不會跳動；
+   * 也不整頁重繪，編輯到一半跳出提示不會打斷輸入。
+   */
   private flash(message: string) {
     this.toast = message
-    this.render()
+    let el = document.querySelector<HTMLElement>('#toast')
+    if (!el) {
+      el = document.createElement('div')
+      el.id = 'toast'
+      el.setAttribute('role', 'status')
+      document.body.appendChild(el)
+    }
+    el.textContent = message
+    el.classList.add('show')
     window.setTimeout(() => {
-      if (this.toast === message) {
-        this.toast = ''
-        this.render()
-      }
+      if (this.toast !== message) return
+      this.toast = ''
+      el!.classList.remove('show')
     }, 2200)
   }
 
@@ -206,15 +227,7 @@ export class PhoneUi {
 
     switch (action) {
       case 'back':
-        // 從 AI 搜尋挑的做法還沒存就按返回：回到那幾種做法，方便換一種看看。
-        if (
-          this.screen.name === 'editor' &&
-          this.screen.isNew &&
-          this.screen.recipe.source === 'ai' &&
-          this.searchResults.length
-        ) {
-          return this.go({ name: 'search' })
-        }
+        if (this.screen.name === 'editor') return this.leaveEditor()
         return this.go({ name: 'library' })
       case 'go-catalog':
         return this.go({ name: 'catalog' })
@@ -230,7 +243,12 @@ export class PhoneUi {
         return this.openRecipe(id!)
       case 'edit':
         if (this.screen.name === 'detail') {
-          return this.go({ name: 'editor', recipe: this.screen.recipe, isNew: false })
+          // 編輯複本：沒按儲存就離開，詳情頁看到的還是原本的內容。
+          return this.go({
+            name: 'editor',
+            recipe: JSON.parse(JSON.stringify(this.screen.recipe)) as Recipe,
+            isNew: false,
+          })
         }
         return
       case 'add-from-catalog':
@@ -268,6 +286,9 @@ export class PhoneUi {
         if (this.screen.name === 'detail') {
           this.hooks.onStartTimer(this.screen.recipe, Number(id))
         }
+        return
+      case 'scroll-current':
+        this.root.querySelector(`#step-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
         return
       case 'dismiss-alarm':
         return this.hooks.onDismissAlarm()
@@ -339,6 +360,13 @@ export class PhoneUi {
     const field = el.dataset.field
     if (!field) return
 
+    if (field === 'library-search') {
+      this.librarySearch = el.value
+      // 只換清單，搜尋框不重繪才不會失焦。
+      const host = this.root.querySelector('#library-list')
+      if (host) host.innerHTML = this.libraryList()
+      return
+    }
     if (field === 'catalog-search') {
       this.query.search = el.value
       // 只重繪結果列，避免搜尋框失焦。
@@ -374,12 +402,20 @@ export class PhoneUi {
         if (st) st.text = el.value
         break
       }
-      case 'step-timer': {
+      case 'step-timer-min':
+      case 'step-timer-sec': {
         const st = recipe.steps.find(s => s.id === id)
         if (!st) break
-        const minutes = Number(el.value)
-        // 空白或 0 代表不計時，要真的移除欄位而不是存成 0。
-        if (Number.isFinite(minutes) && minutes > 0) st.timerSeconds = Math.round(minutes * 60)
+        const read = (f: string) => {
+          const input = this.root.querySelector<HTMLInputElement>(
+            `[data-field="${f}"][data-id="${CSS.escape(id ?? '')}"]`,
+          )
+          const n = Math.floor(Number(input?.value))
+          return Number.isFinite(n) && n > 0 ? n : 0
+        }
+        const total = read('step-timer-min') * 60 + read('step-timer-sec')
+        // 兩格都空白或 0 代表不計時，要真的移除欄位而不是存成 0。
+        if (total > 0) st.timerSeconds = total
         else delete st.timerSeconds
         break
       }
@@ -416,6 +452,7 @@ export class PhoneUi {
     const recipe = toRecipe(entry)
     await this.store.save(recipe)
     this.index = await this.store.listIndex()
+    this.renderCatalogResults()
     this.flash(`已加入「${recipe.name}」`)
   }
 
@@ -497,6 +534,18 @@ export class PhoneUi {
     }
   }
 
+  /** 編輯器按返回：有改過先確認；編輯既有的回到它的詳情頁，AI 挑的回到做法清單。 */
+  private async leaveEditor() {
+    if (this.screen.name !== 'editor') return
+    const { recipe, isNew } = this.screen
+    const changed = JSON.stringify(recipe) !== this.editorBaseline
+    if (changed && !window.confirm('還沒儲存，確定要離開？剛才改的內容會不見。')) return
+    if (!isNew) return this.openRecipe(recipe.id)
+    // 從 AI 搜尋挑的做法還沒存就按返回：回到那幾種做法，方便換一種看看。
+    if (recipe.source === 'ai' && this.searchResults.length) return this.go({ name: 'search' })
+    this.go({ name: 'library' })
+  }
+
   private async saveEditor() {
     if (this.screen.name !== 'editor') return
     const recipe = this.screen.recipe
@@ -562,9 +611,7 @@ export class PhoneUi {
   // ---------- 畫面 ----------
 
   private render() {
-    const banner =
-      (this.error ? `<div class="error">${esc(this.error)}</div>` : '') +
-      (this.toast ? `<div class="toast">${esc(this.toast)}</div>` : '')
+    const banner = this.error ? `<div class="error">${esc(this.error)}</div>` : ''
 
     const body =
       this.screen.name === 'library'
@@ -602,13 +649,16 @@ export class PhoneUi {
    * 「眼鏡上」面板：眼鏡現在顯示什麼、所有在跑的計時器、還有哪幾道菜可以
    * 換過去。沒在煮東西時整塊不出現。
    */
-  private livePanel(): string {
+  private livePanel(viewing?: string): string {
     const state = this.hooks.glassesState()
-    const others = this.hooks.otherActiveDishes()
-    if (state.mode === 'idle' && !state.timers.length && !others.length) return ''
+    // 在某道菜的詳情頁時，那道菜自己的狀態頁面上方已經寫了，這裡不重複。
+    const others = this.hooks.otherActiveDishes().filter(d => d.recipeId !== viewing)
+    const showNow = state.mode !== 'idle' && state.recipeId !== viewing
+    if (!showNow && !state.timers.length && !others.length) return ''
 
-    const now =
-      state.mode === 'recipe' && state.recipeId
+    const now = !showNow
+      ? ''
+      : state.mode === 'recipe' && state.recipeId
         ? `<a class="live-row tappable" data-action="open" data-id="${esc(state.recipeId)}">
              <span class="grow"><b>${esc(state.title)}</b> · ${stepLabel(state.step, state.stepTotal)}</span>
              <span class="chev">${icon.chevron}</span>
@@ -638,10 +688,14 @@ export class PhoneUi {
 
     return `
       <div class="card live">
-        <div class="label">眼鏡上</div>
-        ${now}
-        ${timers ? `<div class="label" style="margin-top:10px">計時中</div>${timers}` : ''}
-        ${switches ? `<div class="stack" style="margin-top:12px;gap:8px">${switches}</div>` : ''}
+        ${now ? `<div class="label">眼鏡上</div>${now}` : ''}
+        ${timers ? `<div class="label"${now ? ' style="margin-top:10px"' : ''}>計時中</div>${timers}` : ''}
+        ${
+          switches
+            ? `${now || timers ? '<div class="label" style="margin-top:12px">也在煮</div>' : '<div class="label">也在煮</div>'}
+               <div class="stack" style="margin-top:8px;gap:8px">${switches}</div>`
+            : ''
+        }
       </div>`
   }
 
@@ -656,11 +710,19 @@ export class PhoneUi {
       </div>`
   }
 
-  private library(): string {
+  /** 食譜庫的清單本體。搜尋時只換這一塊，搜尋框不重繪，中文輸入法才不會被打斷。 */
+  private libraryList(): string {
     const cooking = this.hooks.cookingRecipeId()
     const others = new Set(this.hooks.otherActiveDishes().map(d => d.recipeId))
-    const pending = this.shopping.pending.length
-    const rows = this.index
+    // 正在煮、煮到一半的排最前面：做菜時打開 App 最常要找的就是它們。
+    const rank = (id: string) => (id === cooking ? 0 : others.has(id) ? 1 : 2)
+    const entries = [...this.index].sort((a, b) => rank(a.id) - rank(b.id))
+    const filter = this.librarySearch.trim()
+    const shown = filter
+      ? entries.filter(e => e.name.includes(filter))
+      : entries
+
+    const rows = shown
       .map(
         e => `
         <a class="card tappable row" data-action="open" data-id="${esc(e.id)}">
@@ -681,28 +743,50 @@ export class PhoneUi {
       )
       .join('')
 
+    if (rows) return rows
+    if (filter) return '<div class="empty">找不到這道菜。</div>'
+    return '<div class="empty">還沒有食譜。<br>點上面的「精選料理」挑一道開始吧。</div>'
+  }
+
+  private library(): string {
+    const pending = this.shopping.pending.length
+    // 新增食譜的入口放在最上面、一排排開：食譜多了以後也不會被擠到畫面外找不到。
+    const tiles = [
+      { action: 'go-catalog', icon: icon.book, label: '精選料理' },
+      ...(ONLINE_IMPORT_ENABLED
+        ? [
+            { action: 'go-search', icon: icon.sparkle, label: 'AI 搜尋' },
+            { action: 'go-import', icon: icon.link, label: '貼連結' },
+          ]
+        : []),
+      { action: 'new-manual', icon: icon.pencil, label: '自己寫' },
+    ]
+      .map(
+        t => `
+        <button class="tile" data-action="${t.action}">
+          ${t.icon}<span>${t.label}</span>
+        </button>`,
+      )
+      .join('')
+
     return `
-      <div class="between" style="margin-bottom:20px">
+      <div class="between" style="margin-bottom:16px">
         <h1>我的食譜</h1>
-        <div class="row">
-          <button class="icon ghost" data-action="go-shopping" aria-label="採購清單">
-            ${icon.cart}${pending ? `<span class="dot">${pending}</span>` : ''}
-          </button>
-        </div>
+        <button class="icon ghost" data-action="go-shopping" aria-label="採購清單">
+          ${icon.cart}${pending ? `<span class="dot">${pending}</span>` : ''}
+        </button>
       </div>
       ${this.livePanel()}
+      <div class="label" style="margin:0 2px 8px">新增食譜</div>
+      <div class="tiles">${tiles}</div>
       ${
-        rows ||
-        '<div class="empty">還沒有食譜。<br>先從精選台灣料理挑一道開始吧。</div>'
+        this.index.length > 6
+          ? `<input id="library-search" data-field="library-search" type="search"
+                    placeholder="找我的食譜" value="${esc(this.librarySearch)}"
+                    style="margin:18px 0 10px" />`
+          : '<div style="height:18px"></div>'
       }
-      <div class="stack" style="margin-top:16px">
-        <button class="primary" data-action="go-catalog">瀏覽精選台灣料理</button>
-        ${ONLINE_IMPORT_ENABLED ? '<button data-action="go-search">AI 搜尋食譜</button>' : ''}
-        <div class="row">
-          ${ONLINE_IMPORT_ENABLED ? '<button class="grow" data-action="go-import">貼上連結</button>' : ''}
-          <button class="grow" data-action="new-manual">自己輸入</button>
-        </div>
-      </div>`
+      <div id="library-list">${this.libraryList()}</div>`
   }
 
   private catalog(): string {
@@ -742,7 +826,7 @@ export class PhoneUi {
   }
 
   private catalogResults(): string {
-    const owned = new Set(this.index.map(e => e.name))
+    const owned = new Map(this.index.map(e => [e.name, e.id]))
     const results = queryCatalog(this.query)
     if (!results.length) {
       return '<div class="empty">沒有符合的料理。<br>換個關鍵字或清除篩選。</div>'
@@ -762,10 +846,16 @@ export class PhoneUi {
                   ${esc(r.category)} · ${DIFFICULTY_LABEL[r.difficulty]} · ${r.totalMinutes} 分 · ${r.steps.length} 步驟
                 </div>
               </div>
-              <button class="${owned.has(r.name) ? 'ghost' : 'primary'} small"
-                      data-action="add-from-catalog" data-id="${esc(r.slug)}">
-                ${owned.has(r.name) ? '再加一份' : '加入'}
-              </button>
+              ${
+                // 已經加過的不再鼓勵重複加入，改成「已加入」，點了直接打開自己那份。
+                owned.has(r.name)
+                  ? `<button class="small added" data-action="open" data-id="${esc(owned.get(r.name)!)}">
+                       ${icon.check} 已加入
+                     </button>`
+                  : `<button class="primary small" data-action="add-from-catalog" data-id="${esc(r.slug)}">
+                       加入
+                     </button>`
+              }
             </div>
           </div>`,
           )
@@ -941,7 +1031,7 @@ export class PhoneUi {
         const tag = live ? 'a' : 'div'
         const attrs = live ? ` data-action="jump-step" data-id="${n}"` : ''
         return `
-        <${tag} class="step-row${live ? ' tappable' : ''}${n === current ? ' current' : ''}"${attrs}>
+        <${tag} id="step-${n}" class="step-row${live ? ' tappable' : ''}${n === current ? ' current' : ''}"${attrs}>
           <span class="step-no">${n + 1}</span>
           <div class="grow">
             <div>${esc(s.text)}</div>
@@ -953,19 +1043,48 @@ export class PhoneUi {
       })
       .join('')
 
-    const cookLabel = this.busy
-      ? '傳送中…'
-      : onGlasses
-        ? '正在眼鏡上顯示'
-        : waiting
-          ? `換到這道（${stepLabel(waiting.step, waiting.stepTotal)}）`
-          : '開始烹飪'
+    const source =
+      recipe.source === 'ai'
+        ? `來源：AI 生成${recipe.sourceUrl ? `（查詢：${esc(recipe.sourceUrl)}）` : ''}`
+        : recipe.sourceUrl
+          ? `來源：${isYouTube(recipe.sourceUrl) ? 'YouTube' : '網頁'}`
+          : ''
+
+    // 眼鏡正在顯示這道菜時，不放一顆按不下去的灰按鈕（看起來像壞掉），
+    // 改成一張狀態卡，並提供「看目前步驟」直接捲到那一步。
+    const action = onGlasses
+      ? `
+      <div class="now-card">
+        <div class="grow">
+          <div class="now-title">眼鏡正在顯示這道菜</div>
+          <div>${stepLabel(state.step, state.stepTotal)}</div>
+        </div>
+        ${
+          state.step >= 0 && state.step < state.stepTotal
+            ? `<button class="small" data-action="scroll-current" data-id="${state.step}">看目前步驟</button>`
+            : ''
+        }
+      </div>`
+      : `
+      <button class="primary big" data-action="cook" ${this.busy ? 'disabled' : ''}>
+        ${
+          this.busy
+            ? '傳送中…'
+            : waiting
+              ? `換到這道（${stepLabel(waiting.step, waiting.stepTotal)}）`
+              : '開始烹飪'
+        }
+      </button>`
 
     return `
       ${this.topBar(recipe.name, '<button class="ghost" data-action="edit">編輯</button>')}
-      <button class="primary big" data-action="cook" ${this.busy || onGlasses ? 'disabled' : ''}>
-        ${cookLabel}
-      </button>
+      <div class="chips meta">
+        <span class="chip">${DIFFICULTY_LABEL[recipe.difficulty]}</span>
+        <span class="chip">約 ${recipe.totalMinutes} 分</span>
+        <span class="chip">${recipe.steps.length} 步驟</span>
+        <span class="chip">${recipe.servings} 人份</span>
+      </div>
+      ${action}
       <p class="caption" style="margin:10px 2px 0">
         ${
           live
@@ -973,18 +1092,7 @@ export class PhoneUi {
             : '眼鏡上：點擊下一步、上滑上一步、雙擊離開。<br>長按換另一道菜；要計時的步驟，點一下開始計時。'
         }
       </p>
-      <div style="margin-top:14px">${this.livePanel()}</div>
-      <p class="caption" style="margin:14px 2px">
-        ${recipe.steps.length} 步驟 · 約 ${recipe.totalMinutes} 分 ·
-        ${DIFFICULTY_LABEL[recipe.difficulty]} · ${recipe.servings} 人份
-        ${
-          recipe.source === 'ai'
-            ? `<br>來源：AI 生成${recipe.sourceUrl ? `（查詢：${esc(recipe.sourceUrl)}）` : ''}`
-            : recipe.sourceUrl
-              ? `<br>來源：${isYouTube(recipe.sourceUrl) ? 'YouTube' : '網頁'}`
-              : ''
-        }
-      </p>
+      <div style="margin-top:14px">${this.livePanel(recipe.id)}</div>
 
       <h2>食材</h2>
       <div class="card">${ingredients || '<p class="caption">沒有食材。</p>'}</div>
@@ -993,6 +1101,7 @@ export class PhoneUi {
       <h2>步驟</h2>
       <div class="card">${steps}</div>
 
+      ${source ? `<p class="caption" style="margin:14px 2px 0">${source}</p>` : ''}
       <button class="danger" style="width:100%;margin-top:22px" data-action="delete">刪除食譜</button>`
   }
 
@@ -1028,18 +1137,23 @@ export class PhoneUi {
                     placeholder="這一步要做什麼？">${esc(s.text)}</textarea>
           <div class="row" style="margin-top:8px">
             <span class="caption">計時</span>
-            <input class="mini" type="number" min="0" step="0.5" inputmode="decimal"
-                   data-field="step-timer" data-id="${esc(s.id)}"
+            <input class="mini short" type="number" min="0" inputmode="numeric"
+                   data-field="step-timer-min" data-id="${esc(s.id)}"
                    aria-label="步驟 ${n + 1} 計時分鐘"
-                   value="${s.timerSeconds ? s.timerSeconds / 60 : ''}" placeholder="—" />
-            <span class="caption">分鐘 · 留空不計時</span>
+                   value="${s.timerSeconds && s.timerSeconds >= 60 ? Math.floor(s.timerSeconds / 60) : ''}" placeholder="—" />
+            <span class="caption">分</span>
+            <input class="mini short" type="number" min="0" max="59" inputmode="numeric"
+                   data-field="step-timer-sec" data-id="${esc(s.id)}"
+                   aria-label="步驟 ${n + 1} 計時秒數"
+                   value="${s.timerSeconds && s.timerSeconds % 60 ? s.timerSeconds % 60 : ''}" placeholder="—" />
+            <span class="caption">秒</span>
           </div>
         </div>`,
       )
       .join('')
 
     return `
-      ${this.topBar(isNew ? '新增食譜' : '編輯食譜', `<button class="ghost" data-action="save" ${this.busy ? 'disabled' : ''}>${this.busy ? '儲存中…' : '儲存'}</button>`)}
+      ${this.topBar(isNew ? '新增食譜' : '編輯食譜', `<button class="primary small" data-action="save" ${this.busy ? 'disabled' : ''}>${this.busy ? '儲存中…' : '儲存'}</button>`)}
       <div class="stack">
         <div>
           <div class="label" style="margin-bottom:6px">名稱（眼鏡上會顯示，10 字內）</div>
@@ -1071,7 +1185,11 @@ export class PhoneUi {
       <button style="width:100%;margin-top:10px" data-action="add-ingredient">新增食材</button>
 
       <h2>步驟</h2>
+      <p class="caption" style="margin:-4px 2px 10px">要等的步驟填上計時，眼鏡上點一下就會倒數；不用計時就留空。</p>
       <div class="stack">${steps}</div>
-      <button style="width:100%;margin-top:10px" data-action="add-step">新增步驟</button>`
+      <button style="width:100%;margin-top:10px" data-action="add-step">新增步驟</button>
+      <button class="primary big" style="margin-top:26px" data-action="save" ${this.busy ? 'disabled' : ''}>
+        ${this.busy ? '儲存中…' : '儲存食譜'}
+      </button>`
   }
 }
