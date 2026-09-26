@@ -136,6 +136,22 @@ AI_MODEL = "gpt-4o-mini"
 
 ## 部署
 
+### 一鍵部署（推薦）
+
+設好兩個環境變數，一個指令做完：挑 Flash 等級模型、部署、把金鑰存進 Cloudflare、
+驗證 `/health` 與 `/generate`、再把網址寫進 App 的 `.env.production` 與 `app.json` 白名單。
+
+```bash
+export CLOUDFLARE_API_TOKEN=...   # Cloudflare「Edit Cloudflare Workers」範本建立的權杖
+export GEMINI_API_KEY=...         # Google AI Studio 的金鑰
+cd worker && npm install && node deploy.mjs
+cd ../recipe-app && npm run pack
+```
+
+帳號第一次用 Workers 時要先在 Cloudflare 後台的 Workers & Pages 設定一個 `workers.dev` 子網域。
+
+### 手動部署
+
 ```bash
 cd worker
 npm install
