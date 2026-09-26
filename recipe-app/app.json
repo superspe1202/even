@@ -1,0 +1,22 @@
+{
+  "package_id": "com.superspe.recipeglass",
+  "edition": "202601",
+  "name": "Recipe Glass",
+  "version": "0.1.3",
+  "min_app_version": "2.2.10",
+  "min_sdk_version": "0.0.15",
+  "entrypoint": "index.html",
+  "permissions": [
+    {
+      "name": "network",
+      "desc": "將你貼上的食譜網頁連結、或輸入的菜名，送到食譜解析服務轉換成可在眼鏡上閱讀的步驟。",
+      "whitelist": [
+        "https://recipe-glass-api.superspe.workers.dev"
+      ]
+    }
+  ],
+  "supported_languages": [
+    "zh",
+    "en"
+  ]
+}
