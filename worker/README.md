@@ -142,8 +142,9 @@ AI_MODEL = "gpt-4o-mini"
 驗證 `/health` 與 `/generate`、再把網址寫進 App 的 `.env.production` 與 `app.json` 白名單。
 
 ```bash
-export CLOUDFLARE_API_TOKEN=...   # Cloudflare「Edit Cloudflare Workers」範本建立的權杖
 export GEMINI_API_KEY=...         # Google AI Studio 的金鑰
+# 自己電腦上跑過 `npx wrangler login` 就好；沒有瀏覽器的環境才需要：
+# export CLOUDFLARE_API_TOKEN=... # Cloudflare「Edit Cloudflare Workers」範本建立的權杖
 cd worker && npm install && node deploy.mjs
 cd ../recipe-app && npm run pack
 ```

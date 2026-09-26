@@ -3,8 +3,9 @@
  * 一鍵部署：挑模型 → 部署 Worker → 設定金鑰 → 驗證 → 把網址填進 App。
  *
  * 需要的環境變數（不要寫進任何檔案）：
- *   CLOUDFLARE_API_TOKEN  Cloudflare「Edit Cloudflare Workers」範本建立的權杖
  *   GEMINI_API_KEY        Google AI Studio 的 API 金鑰
+ *   CLOUDFLARE_API_TOKEN  可選。自己電腦上跑過 `npx wrangler login` 就不需要；
+ *                         雲端環境沒有瀏覽器可以登入，才用這個權杖。
  *
  * 用法：cd worker && npm install && node deploy.mjs
  */
@@ -48,9 +49,7 @@ export function pickModel(ids) {
 }
 
 async function main() {
-  const token = process.env.CLOUDFLARE_API_TOKEN
   const geminiKey = process.env.GEMINI_API_KEY
-  if (!token) fail('缺少環境變數 CLOUDFLARE_API_TOKEN')
   if (!geminiKey) fail('缺少環境變數 GEMINI_API_KEY')
 
   console.log('1/5 查詢可用的 Gemini 模型…')
