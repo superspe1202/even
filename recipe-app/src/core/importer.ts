@@ -26,7 +26,10 @@ export function isYouTube(url: string): boolean {
 }
 
 /**
- * 把網頁或 YouTube 連結送到後端解析成食譜。
+ * 把食譜網頁連結送到後端解析成食譜。
+ *
+ * 不支援 YouTube：讀字幕得抓影片頁面與字幕檔，不是官方 API，有違反 YouTube
+ * 使用條款的疑慮。`isYouTube` 留著，是為了舊版匯入的食譜還能標出來源。
  *
  * 抓取與 AI 呼叫都在後端做，原因有二：金鑰不能放進 .ehpk（任何人都能解壓縮），
  * 以及 WebView 的 CORS 會擋掉絕大多數第三方網站。
@@ -41,8 +44,11 @@ export async function importFromUrl(url: string): Promise<Recipe> {
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
     throw new ImportError('請貼上網頁連結（http 或 https 開頭）。')
   }
+  if (isYouTube(url)) {
+    throw new ImportError('目前不支援 YouTube 影片。請貼食譜網頁，或直接用 AI 搜尋菜名。')
+  }
   const payload = await postToService('/extract', { url })
-  return normalizeRecipe(payload, url, isYouTube(url) ? 'youtube' : 'web')
+  return normalizeRecipe(payload, url, 'web')
 }
 
 /**
@@ -92,20 +98,46 @@ async function readErrorMessage(response: Response): Promise<string> {
 
 const MAX_QUERY_LENGTH = 60
 
+/** AI 搜尋給的其中一種做法。 */
+export interface RecipeOption {
+  /** 做法名稱，例如「電鍋版」。 */
+  label: string
+  /** 一句話說明特色。 */
+  summary: string
+  recipe: Recipe
+}
+
 /**
- * 用一個菜名／關鍵字請後端的 AI 直接生成一份食譜。
+ * 用一個菜名／關鍵字請後端的 AI 給出幾種不同做法，讓使用者挑一種。
  *
  * 這不是「抓 Google 搜尋最上面的 AI 回答」——那是 Google 網頁自己的介面
  * （AI Overview），沒有公開 API，爬蟲抓會違反服務條款且畫面隨時會改版。
  * 這裡改成同樣的最終體驗：打幾個字、AI 生出食譜、使用者確認後才存檔，
  * 只是 AI 直接憑自己的知識回答，不會真的去查最新的網路內容。
  */
-export async function generateFromQuery(query: string): Promise<Recipe> {
+export async function generateFromQuery(query: string): Promise<RecipeOption[]> {
   const trimmed = query.trim()
   if (!trimmed) throw new ImportError('請先輸入菜名，例如「番茄炒蛋」。')
   if (trimmed.length > MAX_QUERY_LENGTH) throw new ImportError('菜名太長了，簡短一點就好。')
   const payload = await postToService('/generate', { query: trimmed })
-  return normalizeRecipe(payload, trimmed, 'ai')
+  const raw = (payload as { options?: unknown } | null)?.options
+  // 模型輸出不可信：缺步驟的那種做法直接略過，不要讓整次搜尋因為一種壞掉就失敗。
+  const options = (Array.isArray(raw) ? raw : [])
+    .map((entry, n): RecipeOption | null => {
+      const e = (entry && typeof entry === 'object' ? entry : {}) as Record<string, unknown>
+      try {
+        return {
+          label: asString(e.label) || `做法 ${n + 1}`,
+          summary: asString(e.summary),
+          recipe: normalizeRecipe(e.recipe, trimmed, 'ai'),
+        }
+      } catch {
+        return null
+      }
+    })
+    .filter((x): x is RecipeOption => x !== null)
+  if (!options.length) throw new ImportError('找不到這道菜的做法，換個說法試試看。')
+  return options
 }
 
 function asString(value: unknown): string {

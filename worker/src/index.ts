@@ -1,6 +1,5 @@
 import { GENERIC_FAILURE, UserFacingError } from './errors'
 import { extractTitle, htmlToText } from './readable'
-import { fetchYouTubeContent } from './youtube'
 
 export interface Env {
   /** 相容 OpenAI chat-completions 的端點，例如 https://api.openai.com/v1 */
@@ -67,7 +66,7 @@ async function handleExtract(request: Request, env: Env, origin: string): Promis
 const MAX_QUERY_LENGTH = 60
 
 /**
- * 直接請 AI 憑自己的知識生成一份食譜，不接搜尋引擎。
+ * 直接請 AI 憑自己的知識生成幾種不同做法讓使用者挑，不接搜尋引擎。
  *
  * 「抓 Google 搜尋最上面的 AI 回答」做不到——那是 Google 網頁自己的介面
  * （AI Overview），沒有公開 API，爬蟲抓會違反服務條款而且畫面隨時會改版。
@@ -88,8 +87,8 @@ async function handleGenerate(request: Request, env: Env, origin: string): Promi
   if (query.length > MAX_QUERY_LENGTH) return json({ error: '菜名太長了，簡短一點就好。' }, 400, origin)
 
   try {
-    const recipe = await generateRecipe(query, env)
-    return json(recipe, 200, origin)
+    const result = await generateRecipes(query, env)
+    return json(result, 200, origin)
   } catch (err) {
     console.error('generate 失敗：', err)
     return json({ error: userMessage(err) }, 502, origin)
@@ -137,20 +136,22 @@ function validateTarget(target: string): string | null {
 }
 
 interface SourceContent {
-  kind: 'youtube' | 'web'
   title: string
   text: string
 }
 
+/**
+ * 不支援 YouTube：讀字幕得直接抓影片頁面與字幕檔，不是走官方 API，
+ * 有違反 YouTube 使用條款的疑慮；想做影片裡那道菜，用 AI 搜尋菜名就好。
+ */
 function isYouTube(target: string): boolean {
   const host = new URL(target).hostname.replace(/^www\./, '').toLowerCase()
-  return host === 'youtube.com' || host === 'm.youtube.com' || host === 'youtu.be'
+  return host === 'youtube.com' || host.endsWith('.youtube.com') || host === 'youtu.be'
 }
 
 async function loadSource(target: string): Promise<SourceContent> {
   if (isYouTube(target)) {
-    const { title, transcript } = await fetchYouTubeContent(target)
-    return { kind: 'youtube', title, text: transcript }
+    throw new UserFacingError('目前不支援 YouTube 影片。請貼食譜網頁，或直接用 AI 搜尋菜名。')
   }
 
   const response = await fetch(target, {
@@ -177,7 +178,7 @@ async function loadSource(target: string): Promise<SourceContent> {
   if (text.length < 100) {
     throw new UserFacingError('這個網頁幾乎沒有文字，可能要登入才看得到。')
   }
-  return { kind: 'web', title: extractTitle(html), text }
+  return { title: extractTitle(html), text }
 }
 
 /** 邊讀邊算大小，超過上限就截斷 —— 不能信任 content-length。 */
@@ -204,7 +205,7 @@ async function readCapped(response: Response): Promise<string> {
 
 const SYSTEM_PROMPT = `你是一位把料理內容整理成穿戴裝置食譜的編輯。
 
-使用者會給你一篇網頁文字或一段影片字幕。請抽取出食譜，並以繁體中文（台灣用語）輸出。
+使用者會給你一篇網頁文字。請抽取出食譜，並以繁體中文（台灣用語）輸出。
 
 規則：
 - 只輸出 JSON，不要加上任何說明文字或 markdown 標記。
@@ -222,18 +223,29 @@ const SYSTEM_PROMPT = `你是一位把料理內容整理成穿戴裝置食譜的
 {"name":"","servings":2,"totalMinutes":30,"ingredients":[],"steps":[]}`
 
 async function extractRecipe(source: SourceContent, env: Env): Promise<unknown> {
-  const label = source.kind === 'youtube' ? '影片字幕' : '網頁內容'
-  const userContent = `標題：${source.title || '（無）'}\n\n以下是${label}：\n\n${source.text}`
+  const userContent = `標題：${source.title || '（無）'}\n\n以下是網頁內容：\n\n${source.text}`
   return runRecipePrompt(SYSTEM_PROMPT, userContent, env)
 }
+
+/** 一次給幾種做法讓使用者挑。三種剛好一個畫面看得完，也不會讓回應慢太多。 */
+const OPTION_COUNT = 3
 
 const GENERATE_SYSTEM_PROMPT = `你是一位熟悉家常料理的廚師，正在幫穿戴裝置的食譜 App 生成食譜。
 
 使用者只會給你一個菜名或料理關鍵字，不會提供任何原始資料。請憑你自己的知識，
-給出這道菜「一般常見、做得出來」的標準做法，以繁體中文（台灣用語）輸出。
+給出這道菜 ${OPTION_COUNT} 種「一般常見、做得出來」但彼此明顯不同的做法，
+讓使用者挑一種來做，以繁體中文（台灣用語）輸出。
+
+做法之間要有實質差異，例如：傳統經典版、省時簡單版、不同地區或家庭的版本、
+不同主要調味或烹調方式（燉／炒／電鍋）。不要只是份量不同，也不要硬湊不存在的做法。
+如果這道菜真的只有一種合理做法，可以只給 1 到 2 種。
 
 規則：
 - 只輸出 JSON，不要加上任何說明文字或 markdown 標記。
+- options：做法陣列，每項有：
+  - label：這種做法的名稱，6 個字以內（例如「經典紅燒」「電鍋版」「快速版」）。
+  - summary：一句話說明這個做法的特色，25 字以內。
+  - recipe：完整食譜，欄位如下。
 - name：食譜名稱，10 個字以內。
 - servings：份量人數，整數。
 - totalMinutes：總時間（分鐘），整數。
@@ -245,10 +257,14 @@ const GENERATE_SYSTEM_PROMPT = `你是一位熟悉家常料理的廚師，正在
 - 如果這個關鍵字看起來不是食物或料理名稱，回傳 { "error": "這看起來不是料理名稱" }。
 
 輸出格式：
-{"name":"","servings":2,"totalMinutes":30,"ingredients":[],"steps":[]}`
+{"options":[{"label":"","summary":"","recipe":{"name":"","servings":2,"totalMinutes":30,"ingredients":[],"steps":[]}}]}`
 
-async function generateRecipe(query: string, env: Env): Promise<unknown> {
-  return runRecipePrompt(GENERATE_SYSTEM_PROMPT, `料理關鍵字：${query}`, env)
+async function generateRecipes(query: string, env: Env): Promise<unknown> {
+  const payload = await runRecipePrompt(GENERATE_SYSTEM_PROMPT, `料理關鍵字：${query}`, env)
+  const options = (payload as { options?: unknown } | null)?.options
+  if (!Array.isArray(options) || !options.length) throw new Error('AI 沒有回傳任何做法')
+  // 模型偶爾會多給；超過就截掉，手機畫面是照三種設計的。
+  return { options: options.slice(0, OPTION_COUNT) }
 }
 
 /** `/extract` 與 `/generate` 共用的呼叫、重試與解析邏輯，差別只在 system prompt 與使用者內容。 */

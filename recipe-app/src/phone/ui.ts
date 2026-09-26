@@ -11,6 +11,7 @@ import { newId } from '../core/id'
 import {
   ImportError,
   ONLINE_IMPORT_ENABLED,
+  type RecipeOption,
   emptyRecipe,
   generateFromQuery,
   importFromUrl,
@@ -116,6 +117,8 @@ export class PhoneUi {
   /** 整頁重繪會清掉輸入框；失敗時要留著使用者打的字，不必重打。 */
   private draftUrl = ''
   private draftQuery = ''
+  /** AI 搜尋給的幾種做法。挑了一種進編輯器後按返回，還能回來換另一種。 */
+  private searchResults: RecipeOption[] = []
   /** 上一次看到的「時間到」，換了新的才震動，同一個不重複震。 */
   private lastAlarmKey = ''
 
@@ -203,6 +206,15 @@ export class PhoneUi {
 
     switch (action) {
       case 'back':
+        // 從 AI 搜尋挑的做法還沒存就按返回：回到那幾種做法，方便換一種看看。
+        if (
+          this.screen.name === 'editor' &&
+          this.screen.isNew &&
+          this.screen.recipe.source === 'ai' &&
+          this.searchResults.length
+        ) {
+          return this.go({ name: 'search' })
+        }
         return this.go({ name: 'library' })
       case 'go-catalog':
         return this.go({ name: 'catalog' })
@@ -234,6 +246,14 @@ export class PhoneUi {
         return this.runImport()
       case 'run-search':
         return this.runSearch()
+      case 'pick-option': {
+        const option = this.searchResults[Number(id)]
+        // 給編輯器一份複本：改到一半按返回再換別的做法，原本那份不會被改掉。
+        if (option) {
+          this.go({ name: 'editor', recipe: JSON.parse(JSON.stringify(option.recipe)) as Recipe, isNew: true })
+        }
+        return
+      }
       case 'save':
         return this.saveEditor()
       case 'delete':
@@ -463,13 +483,13 @@ export class PhoneUi {
 
     this.busy = true
     this.error = ''
+    this.searchResults = []
     this.render()
     try {
-      const recipe = await generateFromQuery(query)
+      this.searchResults = await generateFromQuery(query)
       this.busy = false
-      this.draftQuery = ''
-      // 直接進編輯器：AI 生成難免有出入，讓使用者先過目再存。
-      this.go({ name: 'editor', recipe, isNew: true })
+      // 先列出幾種做法讓使用者挑；挑了才進編輯器過目、確認後才存。
+      this.render()
     } catch (err) {
       this.fail(err instanceof ImportError ? err.message : '產生食譜失敗，請稍後再試一次。')
     }
@@ -815,7 +835,7 @@ export class PhoneUi {
       ${this.topBar('貼上連結')}
       <div class="stack">
         <div>
-          <div class="label" style="margin-bottom:6px">網頁或 YouTube 連結</div>
+          <div class="label" style="margin-bottom:6px">食譜網頁連結</div>
           <input id="url" type="url" inputmode="url" placeholder="https://" value="${esc(this.draftUrl)}" ${
             this.busy ? 'disabled' : ''
           } />
@@ -825,7 +845,7 @@ export class PhoneUi {
         </button>
         <p class="caption">
           整理好的食譜會先讓你看過、修改，確認後才會存。
-          YouTube 影片要有字幕才讀得到。
+          不支援 YouTube 影片，想做影片裡的菜，直接用 AI 搜尋菜名。
         </p>
       </div>`
   }
@@ -840,13 +860,52 @@ export class PhoneUi {
             this.busy ? 'disabled' : ''
           } />
         </div>
-        <button class="primary" data-action="run-search" ${this.busy ? 'disabled' : ''}>
-          ${this.busy ? '生成中…' : '生成食譜'}
+        <button class="${this.searchResults.length ? '' : 'primary'}" data-action="run-search" ${this.busy ? 'disabled' : ''}>
+          ${this.busy ? '正在想幾種做法…' : this.searchResults.length ? '重新搜尋' : '搜尋做法'}
         </button>
         <p class="caption">
-          AI 會照常見做法寫一份食譜，存之前你可以先看過、修改。
+          ${
+            this.busy
+              ? '大約需要 10 到 20 秒。'
+              : 'AI 會列出幾種常見做法，挑一種之後可以先看過、修改再存。'
+          }
         </p>
-      </div>`
+      </div>
+      ${this.searchResults.length ? this.searchOptions() : ''}`
+  }
+
+  private searchOptions(): string {
+    const cards = this.searchResults
+      .map((o, n) => {
+        const r = o.recipe
+        const preview = r.ingredients
+          .slice(0, 5)
+          .map(i => i.item)
+          .join('、')
+        return `
+        <div class="card option">
+          <div class="row" style="gap:8px;margin-bottom:4px">
+            <span class="badge accent">${esc(o.label)}</span>
+            <span class="title-row grow">${esc(r.name)}</span>
+          </div>
+          ${o.summary ? `<div>${esc(o.summary)}</div>` : ''}
+          <div class="caption" style="margin-top:6px">
+            ${r.steps.length} 步驟 · 約 ${r.totalMinutes} 分 · ${DIFFICULTY_LABEL[r.difficulty]} · ${r.servings} 人份
+          </div>
+          ${
+            preview
+              ? `<div class="caption">食材：${esc(preview)}${r.ingredients.length > 5 ? ` 等 ${r.ingredients.length} 樣` : ''}</div>`
+              : ''
+          }
+          <button class="primary" style="width:100%;margin-top:12px" data-action="pick-option" data-id="${n}">
+            用這個做法
+          </button>
+        </div>`
+      })
+      .join('')
+    return `
+      <h2>${this.searchResults.length} 種做法，挑一種</h2>
+      ${cards}`
   }
 
   private detail(recipe: Recipe): string {

@@ -11,7 +11,7 @@ Recipe Glass 的解析後端，跑在 Cloudflare Worker 上。
    **不會繞過瀏覽器 CORS**。絕大多數食譜網站不會發 `Access-Control-Allow-Origin`，
    前端直接 `fetch` 一定失敗。
 
-所以「抓網頁 / 抓 YouTube 字幕 / 呼叫 AI」三件事都在這裡做。App 只跟這一個網域說話，
+所以「抓網頁 / 呼叫 AI」兩件事都在這裡做。App 只跟這一個網域說話，
 `app.json` 的白名單也因此只需要列這一個位址。
 
 ## API
@@ -32,21 +32,31 @@ Recipe Glass 的解析後端，跑在 Cloudflare Worker 上。
 }
 
 // 失敗（4xx / 502）
-{ "error": "這部影片沒有可用的字幕，無法解析成食譜。" }
+{ "error": "這個網頁打不開，可能要登入才看得到，或已經失效。" }
 ```
+
+YouTube 連結會直接回「目前不支援 YouTube 影片」。讀字幕只能抓影片頁面與字幕檔，
+不是官方 API，有違反 YouTube 使用條款的疑慮，所以拿掉了；想做影片裡那道菜，用 `/generate` 搜菜名。
 
 前端會再做一次欄位正規化（`src/core/importer.ts`），所以模型少給欄位或型別不對不會讓 App 崩潰。
 
 ### `POST /generate`
 
-不接任何網址，直接請 AI 憑自己的知識生成食譜——App 裡「AI 搜尋食譜」用的就是這個。
+不接任何網址，直接請 AI 憑自己的知識給出幾種不同做法（最多 3 種）——App 裡「AI 搜尋食譜」
+用的就是這個，使用者從中挑一種再進編輯畫面。
 
 ```jsonc
 // 請求
-{ "query": "番茄炒蛋" }
+{ "query": "紅燒肉" }
 
-// 回應（200）跟 /extract 一樣的格式
-{ "name": "番茄炒蛋", "servings": 2, "totalMinutes": 15, "ingredients": [...], "steps": [...] }
+// 回應（200）：每個 recipe 跟 /extract 的回應同一種格式
+{
+  "options": [
+    { "label": "經典紅燒", "summary": "冰糖上色、小火慢燉，入口即化", "recipe": { "name": "紅燒肉", ... } },
+    { "label": "電鍋版", "summary": "不用顧爐火，電鍋燉到軟", "recipe": { ... } },
+    { "label": "快速版", "summary": "切小塊快燒，40 分鐘上桌", "recipe": { ... } }
+  ]
+}
 
 // 失敗（4xx / 502）
 { "error": "這看起來不是料理名稱" }
@@ -160,10 +170,7 @@ npx wrangler dev
 
 ## 已知限制
 
-- **YouTube 字幕是非官方路徑。** 沒有公開 API，只能從 watch 頁面內嵌的
-  `ytInitialPlayerResponse` 撈字幕軌網址。YouTube 改版時會壞掉，程式會回
-  「沒有可用的字幕」而不是丟出例外，但那時就需要修 `src/youtube.ts`。
-- **沒有字幕的影片無法解析。** 純畫面的料理影片抽不出文字。
+- **不支援 YouTube。** 見上方 `/extract` 的說明。
 - **需要登入或由 JavaScript 動態載入的頁面抓不到內容。** Worker 只拿得到初始 HTML，
   這種情況會回「這個頁面幾乎沒有文字內容」。
 - 網頁內容截到 24,000 字、下載上限 2 MB，避免 token 與記憶體失控。
