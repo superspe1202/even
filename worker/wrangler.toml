@@ -1,6 +1,9 @@
 name = "recipe-glass-api"
 main = "src/index.ts"
 compatibility_date = "2026-09-01"
+# Cloudflare 帳號 ID。不是機密（只是帳號編號，沒有權杖就什麼都做不了），
+# 寫在這裡部署時就不必另外設定 CLOUDFLARE_ACCOUNT_ID。
+account_id = "11212fa8cf9ac8619ba181aaa7f6c800"
 
 # 非機密設定放這裡；AI_API_KEY 與 APP_TOKEN 一律用
 # `wrangler secret put` 設定，不要寫進這個檔案（它會進版控）。
