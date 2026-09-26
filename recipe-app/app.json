@@ -9,7 +9,7 @@
   "permissions": [
     {
       "name": "network",
-      "desc": "將你貼上的網頁或 YouTube 連結、或輸入的菜名，送到食譜解析服務轉換成可在眼鏡上閱讀的步驟。",
+      "desc": "將你貼上的食譜網頁連結、或輸入的菜名，送到食譜解析服務轉換成可在眼鏡上閱讀的步驟。",
       "whitelist": [
         "https://recipe-glass-api.superspe.workers.dev"
       ]
