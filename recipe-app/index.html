@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
     <title>Recipe Glass</title>
     <style>
@@ -43,7 +43,14 @@
         -webkit-text-size-adjust: 100%;
         overscroll-behavior: none;
       }
-      #app { padding: 20px 16px 56px; max-width: 720px; margin: 0 auto; }
+      /*
+       * 底部多留空間：Even App 的 WebView 底部可能有自己的列或 Home 指示條蓋住內容，
+       * 頁面最下面的按鈕（例如 AI 搜尋最後一種做法）會被擋住、捲不到。
+       */
+      #app {
+        padding: 20px 16px calc(140px + env(safe-area-inset-bottom, 0px));
+        max-width: 720px; margin: 0 auto;
+      }
       h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; margin: 0; }
       h2 { font-size: 15px; font-weight: 700; margin: 26px 2px 8px; }
       p { margin: 0; }

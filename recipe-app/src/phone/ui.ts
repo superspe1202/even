@@ -490,6 +490,8 @@ export class PhoneUi {
       this.busy = false
       // 先列出幾種做法讓使用者挑；挑了才進編輯器過目、確認後才存。
       this.render()
+      // 結果在搜尋框下面，手機一個畫面放不下；捲過去讓使用者知道下面還有。
+      this.root.querySelector('#options')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     } catch (err) {
       this.fail(err instanceof ImportError ? err.message : '產生食譜失敗，請稍後再試一次。')
     }
@@ -883,7 +885,7 @@ export class PhoneUi {
           .map(i => i.item)
           .join('、')
         return `
-        <div class="card option">
+        <div class="card option tappable" data-action="pick-option" data-id="${n}">
           <div class="row" style="gap:8px;margin-bottom:4px">
             <span class="badge accent">${esc(o.label)}</span>
             <span class="title-row grow">${esc(r.name)}</span>
@@ -904,7 +906,7 @@ export class PhoneUi {
       })
       .join('')
     return `
-      <h2>${this.searchResults.length} 種做法，挑一種</h2>
+      <h2 id="options">${this.searchResults.length} 種做法，點一張卡片挑選</h2>
       ${cards}`
   }
 
