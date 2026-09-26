@@ -2,8 +2,9 @@
 /**
  * 一鍵部署：挑模型 → 部署 Worker → 設定金鑰 → 驗證 → 把網址填進 App。
  *
- * 需要的環境變數（不要寫進任何檔案）：
- *   GEMINI_API_KEY        Google AI Studio 的 API 金鑰
+ * 環境變數（都可選，不要寫進任何檔案）：
+ *   GEMINI_API_KEY        Google AI Studio 的 API 金鑰。沒設就用 Cloudflare 自己的
+ *                         Workers AI，完全不需要金鑰。
  *   CLOUDFLARE_API_TOKEN  可選。自己電腦上跑過 `npx wrangler login` 就不需要；
  *                         雲端環境沒有瀏覽器可以登入，才用這個權杖。
  *
@@ -50,8 +51,26 @@ export function pickModel(ids) {
 
 async function main() {
   const geminiKey = process.env.GEMINI_API_KEY
-  if (!geminiKey) fail('缺少環境變數 GEMINI_API_KEY')
+  if (geminiKey) await useGemini(geminiKey)
+  else console.log('1/5 沒有 GEMINI_API_KEY，改用 Cloudflare Workers AI（不需要金鑰）')
 
+  console.log('2/5 部署 Worker…')
+  const out = wrangler(['deploy'])
+  const url = (out.match(/https:\/\/[a-z0-9.-]+\.workers\.dev/i) ?? [])[0]
+  if (!url) fail(`部署完成但找不到網址，wrangler 輸出：\n${out}`)
+  console.log(`    ${url}`)
+
+  if (geminiKey) {
+    console.log('3/5 設定 AI 金鑰（只存在 Cloudflare）…')
+    wrangler(['secret', 'put', 'AI_API_KEY'], geminiKey)
+  } else {
+    console.log('3/5 Workers AI 不需要金鑰，略過')
+  }
+
+  await verifyAndWire(url)
+}
+
+async function useGemini(geminiKey) {
   console.log('1/5 查詢可用的 Gemini 模型…')
   const res = await fetch('https://generativelanguage.googleapis.com/v1beta/openai/models', {
     headers: { authorization: `Bearer ${geminiKey}` },
@@ -63,17 +82,10 @@ async function main() {
   console.log(`    使用 ${model}`)
   const toml = readFileSync(wranglerToml, 'utf8')
   writeFileSync(wranglerToml, toml.replace(/^AI_MODEL = ".*"$/m, `AI_MODEL = "${model}"`))
+}
 
-  console.log('2/5 部署 Worker…')
-  const out = wrangler(['deploy'])
-  const url = (out.match(/https:\/\/[a-z0-9.-]+\.workers\.dev/i) ?? [])[0]
-  if (!url) fail(`部署完成但找不到網址，wrangler 輸出：\n${out}`)
-  console.log(`    ${url}`)
-
-  console.log('3/5 設定 AI 金鑰（只存在 Cloudflare）…')
-  wrangler(['secret', 'put', 'AI_API_KEY'], geminiKey)
-
-  console.log('4/5 驗證…')
+async function verifyAndWire(url) {
+  console.log('4/5 驗證（AI 生成三種做法要一點時間）…')
   // 新部署的 workers.dev 網址有時要幾秒才生效。
   let healthy = false
   for (let i = 0; i < 10 && !healthy; i++) {

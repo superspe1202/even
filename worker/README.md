@@ -89,7 +89,17 @@ npx wrangler secret put AI_API_KEY
 npx wrangler secret put APP_TOKEN   # 可選，見下方
 ```
 
-## 使用 Gemini（預設）
+## 不想申請金鑰：Cloudflare Workers AI
+
+沒有設定 `AI_API_KEY` 時，Worker 會改用 Cloudflare 自己的 Workers AI（`wrangler.toml` 的
+`[ai]` 綁定）。模型跑在你自己的 Cloudflare 帳號裡，**不需要任何外部 API 金鑰**，免費方案每天
+有固定額度（以 Neurons 計），個人測試通常夠用。模型由 `WORKERS_AI_MODEL` 決定，預設
+`@cf/meta/llama-3.3-70b-instruct-fp8-fast`；可用清單見 `npx wrangler ai models`。
+
+跟 Gemini 比的取捨：中文與台灣用語的品質、JSON 格式的穩定度一般會差一些，一次生成三種
+做法也可能比較慢。先用它跑起來試，不滿意再申請 Gemini 金鑰（設了 `AI_API_KEY` 就會優先用）。
+
+## 使用 Gemini
 
 `wrangler.toml` 預設已指向 Gemini 的 OpenAI 相容端點：
 
@@ -138,11 +148,12 @@ AI_MODEL = "gpt-4o-mini"
 
 ### 一鍵部署（推薦）
 
-設好兩個環境變數，一個指令做完：挑 Flash 等級模型、部署、把金鑰存進 Cloudflare、
-驗證 `/health` 與 `/generate`、再把網址寫進 App 的 `.env.production` 與 `app.json` 白名單。
+一個指令做完：部署、驗證 `/health` 與 `/generate`、再把網址寫進 App 的 `.env.production`
+與 `app.json` 白名單。有設 `GEMINI_API_KEY` 會另外挑 Flash 等級模型並把金鑰存進 Cloudflare；
+沒設就用 Workers AI，完全不需要金鑰。
 
 ```bash
-export GEMINI_API_KEY=...         # Google AI Studio 的金鑰
+export GEMINI_API_KEY=...         # 可選；不設就用 Cloudflare Workers AI
 # 自己電腦上跑過 `npx wrangler login` 就好；沒有瀏覽器的環境才需要：
 # export CLOUDFLARE_API_TOKEN=... # Cloudflare「Edit Cloudflare Workers」範本建立的權杖
 cd worker && npm install && node deploy.mjs

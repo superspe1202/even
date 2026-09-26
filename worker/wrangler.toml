@@ -18,3 +18,9 @@ AI_MODEL = "gemini-3-flash"
 ALLOW_ORIGIN = "*"
 # 設成 "off" 可停用 response_format（程式在被拒絕時也會自動退回重試）。
 AI_JSON_MODE = "json_object"
+# 沒設定 AI_API_KEY 時改用 Cloudflare Workers AI（不需要任何金鑰）用的模型。
+WORKERS_AI_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+
+# Cloudflare Workers AI：模型跑在自己的 Cloudflare 帳號裡，沒有外部 API 金鑰。
+[ai]
+binding = "AI"

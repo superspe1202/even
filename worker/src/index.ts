@@ -5,8 +5,14 @@ export interface Env {
   /** 相容 OpenAI chat-completions 的端點，例如 https://api.openai.com/v1 */
   AI_BASE_URL: string
   AI_MODEL: string
-  /** 用 `wrangler secret put AI_API_KEY` 設定，絕不寫進 wrangler.toml。 */
-  AI_API_KEY: string
+  /**
+   * 用 `wrangler secret put AI_API_KEY` 設定，絕不寫進 wrangler.toml。
+   * 沒設就改用下面的 Workers AI，不需要任何金鑰。
+   */
+  AI_API_KEY?: string
+  /** Cloudflare Workers AI 綁定（wrangler.toml 的 [ai]）。模型跑在自己的 Cloudflare 帳號裡。 */
+  AI?: Ai
+  WORKERS_AI_MODEL?: string
   /** 設成 'off' 可停用 response_format；預設會帶，被拒絕時自動退回重試。 */
   AI_JSON_MODE?: string
   /** 可選的共用權杖，擋掉隨手打到這個網址的請求。見 README 的說明與限制。 */
@@ -273,13 +279,44 @@ async function runRecipePrompt(
   userContent: string,
   env: Env,
 ): Promise<unknown> {
-  if (!env.AI_API_KEY) throw new Error('伺服器未設定 AI_API_KEY')
-
   const messages = [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: userContent },
   ]
 
+  // 沒有外部 AI 金鑰就用 Cloudflare 自己的 Workers AI。
+  const recipe = env.AI_API_KEY
+    ? await runExternal(messages, env)
+    : env.AI
+      ? await runWorkersAi(messages, env)
+      : (() => {
+          throw new Error('伺服器沒有設定 AI_API_KEY，也沒有 Workers AI 綁定')
+        })()
+
+  if (recipe && typeof recipe === 'object' && 'error' in recipe) {
+    // 這是 system prompt 要求 AI 在「不是食譜／不是料理名稱」時回的句子，本來就寫給人看。
+    throw new UserFacingError(String((recipe as { error: unknown }).error))
+  }
+  return recipe
+}
+
+const DEFAULT_WORKERS_AI_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast'
+
+async function runWorkersAi(messages: ChatMessage[], env: Env): Promise<unknown> {
+  const model = env.WORKERS_AI_MODEL || DEFAULT_WORKERS_AI_MODEL
+  // 型別只列得出 Cloudflare 當下已知的模型；這裡的型號來自設定檔，所以放寬型別。
+  const run = env.AI!.run.bind(env.AI) as (model: string, input: unknown) => Promise<unknown>
+  // Workers AI 預設只輸出 256 個 token，三種完整食譜遠遠不夠，一定要調高。
+  const result = (await run(model, { messages, max_tokens: 6000, temperature: 0.2 })) as {
+    response?: unknown
+  }
+  const response = result?.response
+  if (response && typeof response === 'object') return response
+  if (typeof response !== 'string' || !response.trim()) throw new Error('Workers AI 沒有回傳內容')
+  return parseJsonLoose(response)
+}
+
+async function runExternal(messages: ChatMessage[], env: Env): Promise<unknown> {
   // 各家相容端點對 response_format 的支援程度不一，被拒絕時退回不帶它重試一次。
   // system prompt 本身就要求「只輸出 JSON」，加上 parseJsonLoose 會剝掉
   // markdown 圍欄，所以少了這個參數仍然能正常運作。
@@ -302,13 +339,7 @@ async function runRecipePrompt(
   }
   const content = payload.choices?.[0]?.message?.content
   if (!content) throw new Error('AI 服務沒有回傳內容')
-
-  const recipe = parseJsonLoose(content)
-  if (recipe && typeof recipe === 'object' && 'error' in recipe) {
-    // 這是 system prompt 要求 AI 在「不是食譜／不是料理名稱」時回的句子，本來就寫給人看。
-    throw new UserFacingError(String((recipe as { error: unknown }).error))
-  }
-  return recipe
+  return parseJsonLoose(content)
 }
 
 interface ChatMessage {
