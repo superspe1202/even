@@ -17,6 +17,7 @@ const INDEX_KEY = 'rg.index'
 const PROGRESS_KEY = 'rg.progress'
 const SHOPPING_KEY = 'rg.shopping'
 const TIMERS_KEY = 'rg.timers'
+const FAVORITES_KEY = 'rg.favorites'
 const RECIPE_PREFIX = 'rg.r.'
 /** 單筆 value 太大有風險，長食譜切塊存。 */
 const CHUNK_SIZE = 40_000
@@ -115,6 +116,21 @@ export class RecipeStore {
       await this.bridge.setLocalStorage(chunkKey(id, i), '')
     }
     await this.clearProgress(id)
+    await this.setFavorite(id, false)
+  }
+
+  /** 加了星號的食譜 id。另外存一份，不動食譜本身的 updatedAt。 */
+  async getFavorites(): Promise<string[]> {
+    const parsed = parseJson<unknown>(await this.bridge.getLocalStorage(FAVORITES_KEY), [])
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : []
+  }
+
+  async setFavorite(id: string, on: boolean): Promise<void> {
+    const current = await this.getFavorites()
+    const has = current.includes(id)
+    if (has === on) return
+    const next = on ? [...current, id] : current.filter(x => x !== id)
+    await this.bridge.setLocalStorage(FAVORITES_KEY, JSON.stringify(next))
   }
 
   /** 所有目前有進度的食譜，用來判斷「還有哪些食譜在煮」以支援切換。 */

@@ -103,6 +103,9 @@ const icon = {
   sparkle: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 4.9L19 9.7l-5.2 1.8L12 16.4l-1.8-4.9L5 9.7l5.2-1.8z"/><path d="M18.5 15.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg>',
   link: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>',
   pencil: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>',
+  star: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.8L12 16.8l-5.2 2.8 1-5.8-4.3-4.1 5.9-.8z"/></svg>',
+  starOutline: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.8L12 16.8l-5.2 2.8 1-5.8-4.3-4.1 5.9-.8z"/></svg>',
+  trash: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13"/></svg>',
   check: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
 }
 
@@ -127,6 +130,13 @@ export class PhoneUi {
   /** AI 搜尋給的幾種做法。挑了一種進編輯器後按返回，還能回來換另一種。 */
   private searchResults: RecipeOption[] = []
   private editorBaseline = ''
+  /** 加了星號的食譜，排在食譜庫前面。 */
+  private favorites = new Set<string>()
+  /** 食譜庫左滑：正在拖的那一列，以及目前滑開的那一列。 */
+  private swipe: { el: HTMLElement; x: number; y: number; dx: number; dragging: boolean; base: number } | null = null
+  private swipeOpen: HTMLElement | null = null
+  /** 剛拖完手指放開時瀏覽器還會補送一次 click，這段時間內不當成「打開食譜」。 */
+  private swipeEndedAt = 0
   /** 食譜庫的搜尋字。食譜超過一個畫面才會出現搜尋框。 */
   private librarySearch = ''
   /** 上一次看到的「時間到」，換了新的才震動，同一個不重複震。 */
@@ -140,6 +150,10 @@ export class PhoneUi {
     this.root.addEventListener('click', e => void this.onClick(e))
     this.root.addEventListener('input', e => this.onInput(e))
     this.root.addEventListener('change', e => void this.onChange(e))
+    this.root.addEventListener('pointerdown', e => this.onSwipeStart(e))
+    this.root.addEventListener('pointermove', e => this.onSwipeMove(e))
+    this.root.addEventListener('pointerup', () => this.onSwipeEnd())
+    this.root.addEventListener('pointercancel', () => this.onSwipeEnd(true))
     // 鍵盤打開時 iOS 會把整個文件往上推；收起後沒推回來，畫面就會錯位、底部內容點不到。
     // 我們的內容只在 #scroller 裡捲，文件本身永遠該在最上面。
     document.addEventListener('focusout', () => {
@@ -180,6 +194,7 @@ export class PhoneUi {
 
   async start() {
     this.shopping = await this.store.getShoppingList()
+    this.favorites = new Set(await this.store.getFavorites())
     await this.refreshIndex()
   }
 
@@ -231,6 +246,13 @@ export class PhoneUi {
   private async onClick(event: Event) {
     const el = (event.target as HTMLElement).closest<HTMLElement>('[data-action]')
     if (!el) return
+    // 手指剛拖完放開，瀏覽器補送的 click 不算數。
+    if (Date.now() - this.swipeEndedAt < 350) return
+    // 有一列滑開時，點那一列（不是按鈕）只是把它收回去，不打開食譜。
+    if (this.swipeOpen && el.classList.contains('swipe-front')) {
+      this.closeSwipe()
+      return
+    }
     const action = el.dataset.action!
     const id = el.dataset.id
     if (this.busy && action !== 'back') return
@@ -297,6 +319,10 @@ export class PhoneUi {
           this.hooks.onStartTimer(this.screen.recipe, Number(id))
         }
         return
+      case 'toggle-fav':
+        return this.toggleFavorite(id!)
+      case 'delete-from-list':
+        return this.deleteFromList(id!)
       case 'stop-cooking':
         return this.stopCooking()
       case 'scroll-current':
@@ -610,6 +636,110 @@ export class PhoneUi {
     }
   }
 
+  // ---------- 食譜庫左滑 ----------
+
+  private static readonly SWIPE_WIDTH = 152
+
+  private onSwipeStart(e: PointerEvent) {
+    const front = (e.target as HTMLElement).closest<HTMLElement>('.swipe-front')
+    if (this.swipeOpen && this.swipeOpen !== front) this.closeSwipe()
+    if (!front) return
+    const base = front === this.swipeOpen ? -PhoneUi.SWIPE_WIDTH : 0
+    this.swipe = { el: front, x: e.clientX, y: e.clientY, dx: 0, dragging: false, base }
+  }
+
+  private onSwipeMove(e: PointerEvent) {
+    const s = this.swipe
+    if (!s) return
+    const dx = e.clientX - s.x
+    const dy = e.clientY - s.y
+    if (!s.dragging) {
+      // 先判斷手指是在左右滑還是上下捲；上下就交給頁面捲動。
+      if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) {
+        this.swipe = null
+        return
+      }
+      if (Math.abs(dx) < 10) return
+      s.dragging = true
+      s.el.style.transition = 'none'
+      // 底下的按鈕平常藏起來，不然圓角邊緣會透出一點紅色。
+      s.el.parentElement?.classList.add('swiping')
+    }
+    s.dx = dx
+    const offset = Math.min(0, Math.max(-PhoneUi.SWIPE_WIDTH - 24, s.base + dx))
+    PhoneUi.setSwipe(s.el, offset)
+  }
+
+  private onSwipeEnd(cancelled = false) {
+    const s = this.swipe
+    this.swipe = null
+    if (!s || !s.dragging) return
+    this.swipeEndedAt = Date.now()
+    const offset = s.base + s.dx
+    const open = !cancelled && offset < -PhoneUi.SWIPE_WIDTH / 2
+    s.el.style.transition = ''
+    PhoneUi.setSwipe(s.el, open ? -PhoneUi.SWIPE_WIDTH : 0)
+    this.swipeOpen = open ? s.el : null
+    if (!open) this.hideActionsLater(s.el)
+  }
+
+  private closeSwipe() {
+    const el = this.swipeOpen
+    this.swipeOpen = null
+    if (!el) return
+    PhoneUi.setSwipe(el, 0)
+    this.hideActionsLater(el)
+  }
+
+  /**
+   * 卡片右邊往左縮，而不是整張往左推：整張推的話左邊的菜名會被推出畫面，
+   * 看不到自己正要刪的是哪一道。
+   */
+  private static setSwipe(front: HTMLElement, offset: number) {
+    front.style.width = offset ? `calc(100% - ${-offset}px)` : ''
+  }
+
+  /** 等收回的動畫跑完再把底下的按鈕藏起來。 */
+  private hideActionsLater(front: HTMLElement) {
+    window.setTimeout(() => {
+      if (this.swipeOpen !== front && this.swipe?.el !== front) {
+        front.parentElement?.classList.remove('swiping')
+      }
+    }, 260)
+  }
+
+  private refreshLibraryList() {
+    this.swipeOpen = null
+    const host = this.root.querySelector('#library-list')
+    if (host) host.innerHTML = this.libraryList()
+    else this.render()
+  }
+
+  private async toggleFavorite(id: string) {
+    const on = !this.favorites.has(id)
+    if (on) this.favorites.add(id)
+    else this.favorites.delete(id)
+    await this.store.setFavorite(id, on)
+    if (this.screen.name === 'library') this.refreshLibraryList()
+    else this.render()
+    this.flash(on ? '已加星號，會排在前面' : '已取消星號')
+  }
+
+  private async deleteFromList(id: string) {
+    const entry = this.index.find(e => e.id === id)
+    if (!entry) return
+    if (!window.confirm(`確定要刪除「${entry.name}」？這個動作無法復原。`)) {
+      this.closeSwipe()
+      return
+    }
+    await this.store.remove(id)
+    this.favorites.delete(id)
+    this.hooks.onRecipeDeleted(id)
+    this.index = await this.store.listIndex()
+    this.refreshLibraryList()
+    this.flash(`已刪除「${entry.name}」`)
+  }
+
   private async stopCooking() {
     if (this.screen.name !== 'detail') return
     const recipe = this.screen.recipe
@@ -645,6 +775,8 @@ export class PhoneUi {
     // 所以重繪前先把焦點移開、讓鍵盤正常收起。
     const focused = document.activeElement
     if (focused instanceof HTMLElement && this.root.contains(focused)) focused.blur()
+    // 重繪後原本滑開的那一列已經不在了。
+    this.swipeOpen = null
     const banner = this.error ? `<div class="error">${esc(this.error)}</div>` : ''
 
     const body =
@@ -748,8 +880,10 @@ export class PhoneUi {
   private libraryList(): string {
     const cooking = this.hooks.cookingRecipeId()
     const others = new Set(this.hooks.otherActiveDishes().map(d => d.recipeId))
-    // 正在煮、煮到一半的排最前面：做菜時打開 App 最常要找的就是它們。
-    const rank = (id: string) => (id === cooking ? 0 : others.has(id) ? 1 : 2)
+    // 正在煮、煮到一半的排最前面：做菜時打開 App 最常要找的就是它們；
+    // 接著是加了星號的。
+    const rank = (id: string) =>
+      id === cooking ? 0 : others.has(id) ? 1 : this.favorites.has(id) ? 2 : 3
     const entries = [...this.index].sort((a, b) => rank(a.id) - rank(b.id))
     const filter = this.librarySearch.trim()
     const shown = filter
@@ -757,11 +891,21 @@ export class PhoneUi {
       : entries
 
     const rows = shown
-      .map(
-        e => `
-        <a class="card tappable row" data-action="open" data-id="${esc(e.id)}">
+      .map(e => {
+        const fav = this.favorites.has(e.id)
+        return `
+        <div class="swipe">
+          <div class="swipe-actions">
+            <button class="swipe-fav" data-action="toggle-fav" data-id="${esc(e.id)}">
+              ${icon.starOutline}<span>${fav ? '取消星號' : '加星號'}</span>
+            </button>
+            <button class="swipe-del" data-action="delete-from-list" data-id="${esc(e.id)}">
+              ${icon.trash}<span>刪除</span>
+            </button>
+          </div>
+        <a class="card tappable row swipe-front" data-action="open" data-id="${esc(e.id)}">
           <div class="grow">
-            <div class="title-row">${esc(e.name)}</div>
+            <div class="title-row">${fav ? `<span class="fav-star" aria-label="已加星號">${icon.star}</span>` : ''}${esc(e.name)}</div>
             <div class="caption">${e.stepCount} 步驟 · ${e.totalMinutes} 分 · ${
               DIFFICULTY_LABEL[e.difficulty] ?? '—'
             }</div>
@@ -773,11 +917,14 @@ export class PhoneUi {
                 ? '<span class="badge">進行中</span>'
                 : `<span class="chev">${icon.chevron}</span>`
           }
-        </a>`,
-      )
+        </a>
+        </div>`
+      })
       .join('')
 
-    if (rows) return rows
+    if (rows) {
+      return `${rows}<p class="caption swipe-hint">往左滑一列，可以加星號或刪除。</p>`
+    }
     if (filter) return '<div class="empty">找不到這道菜。</div>'
     return '<div class="empty">還沒有食譜。<br>點上面的「精選料理」挑一道開始吧。</div>'
   }
@@ -1111,7 +1258,16 @@ export class PhoneUi {
       </button>`
 
     return `
-      ${this.topBar(recipe.name, '<button class="ghost" data-action="edit">編輯</button>')}
+      ${this.topBar(
+        recipe.name,
+        `<div class="row" style="gap:2px">
+          <button class="icon ghost${this.favorites.has(recipe.id) ? ' fav-on' : ''}" data-action="toggle-fav"
+                  data-id="${esc(recipe.id)}" aria-label="${this.favorites.has(recipe.id) ? '取消星號' : '加星號'}">
+            ${this.favorites.has(recipe.id) ? icon.star : icon.starOutline}
+          </button>
+          <button class="ghost" data-action="edit">編輯</button>
+        </div>`,
+      )}
       <div class="chips meta">
         <span class="chip">${DIFFICULTY_LABEL[recipe.difficulty]}</span>
         <span class="chip">約 ${recipe.totalMinutes} 分</span>
