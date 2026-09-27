@@ -187,7 +187,8 @@ export class PhoneUi {
     // 記下進編輯器時的樣子，按返回時才判斷得出有沒有改過、要不要提醒。
     if (screen.name === 'editor') this.editorBaseline = JSON.stringify(screen.recipe)
     this.render()
-    window.scrollTo(0, 0)
+    // 捲動的是 #scroller（見 index.html），不是整個視窗。
+    document.getElementById('scroller')?.scrollTo(0, 0)
   }
 
   private fail(message: string) {

@@ -33,7 +33,8 @@
       * { box-sizing: border-box; }
       html, body {
         margin: 0;
-        min-height: 100%;
+        height: 100%;
+        overflow: hidden;
         background: var(--bg);
         color: var(--text);
         font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Noto Sans TC",
@@ -42,6 +43,17 @@
         touch-action: manipulation;
         -webkit-text-size-adjust: 100%;
         overscroll-behavior: none;
+      }
+      /*
+       * 整頁不靠文件本身捲動，改由這個容器自己捲：Even App 的 WebView 會把整頁捲動
+       * 關掉（實機上超過一個畫面的內容滑不上來），但元素內的 overflow 捲動不受影響。
+       */
+      #scroller {
+        position: fixed; inset: 0;
+        overflow-y: auto; overflow-x: hidden;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
+        touch-action: pan-y;
       }
       /*
        * 底部多留空間：Even App 的 WebView 底部可能有自己的列或 Home 指示條蓋住內容，
@@ -212,7 +224,7 @@
     </style>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="scroller"><div id="app"></div></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
