@@ -140,6 +140,13 @@ export class PhoneUi {
     this.root.addEventListener('click', e => void this.onClick(e))
     this.root.addEventListener('input', e => this.onInput(e))
     this.root.addEventListener('change', e => void this.onChange(e))
+    // 鍵盤打開時 iOS 會把整個文件往上推；收起後沒推回來，畫面就會錯位、底部內容點不到。
+    // 我們的內容只在 #scroller 裡捲，文件本身永遠該在最上面。
+    document.addEventListener('focusout', () => {
+      window.setTimeout(() => {
+        if (window.scrollY || document.documentElement.scrollTop) window.scrollTo(0, 0)
+      }, 100)
+    })
     // 倒數每秒走一格。只改數字，不動其他元素。
     window.setInterval(() => this.tickCountdowns(), 1000)
   }
@@ -633,6 +640,11 @@ export class PhoneUi {
   // ---------- 畫面 ----------
 
   private render() {
+    // 整頁重繪會把正在打字的輸入框直接拿掉。iOS 的 WebView 在鍵盤開著、焦點元素
+    // 被移除時，常會卡在「頁面捲不動」的狀態（實機上 AI 搜尋完再去精選料理就滑不動），
+    // 所以重繪前先把焦點移開、讓鍵盤正常收起。
+    const focused = document.activeElement
+    if (focused instanceof HTMLElement && this.root.contains(focused)) focused.blur()
     const banner = this.error ? `<div class="error">${esc(this.error)}</div>` : ''
 
     const body =
