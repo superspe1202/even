@@ -264,15 +264,44 @@ export class GlassesRuntime {
     this.notify()
   }
 
-  /** 食譜被刪掉時，它的計時器也沒必要再響。 */
+  /**
+   * 食譜被刪掉、或在手機上按了「結束烹飪」：它的計時器、還沒響完的提醒都拿掉，
+   * 響過的紀錄也清掉——之後重新開始煮這道菜，計時要能再開。
+   */
   cancelTimersFor(recipeId: string): void {
     const before = this.timers.length
     this.timers = this.timers.filter(t => t.recipeId !== recipeId)
-    if (this.timers.length === before) return
-    this.callbacks.onTimersChange?.(this.timers)
-    this.syncTicker()
+    for (const key of [...this.finishedTimers]) {
+      if (key.startsWith(`${recipeId}#`)) this.finishedTimers.delete(key)
+    }
+    if (this.timers.length !== before) {
+      this.callbacks.onTimersChange?.(this.timers)
+      this.syncTicker()
+    }
+
+    const blinking = this.alarms[0]
+    this.alarms = this.alarms.filter(a => a.recipeId !== recipeId)
+    if (blinking && blinking.recipeId === recipeId) {
+      // 正在閃的就是這道菜的：停掉，後面還有別道的就接著響，沒有就回原畫面。
+      if (this.alarmHandle !== null) {
+        clearInterval(this.alarmHandle)
+        this.alarmHandle = null
+      }
+      if (this.alarms.length) this.startAlarm()
+      else void this.render()
+      return
+    }
     void this.renderFooter()
     this.notify()
+  }
+
+  /** 眼鏡回到待命畫面（例如手機上結束了正在顯示的那道菜，又沒有別道在煮）。 */
+  async unload(): Promise<void> {
+    this.recipe = null
+    this.title = 'Recipe Glass'
+    this.views = []
+    this.index = 0
+    await this.render()
   }
 
   /**

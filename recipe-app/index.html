@@ -104,6 +104,8 @@
         padding: 14px 16px; margin-bottom: 8px;
       }
       .card.tappable { cursor: pointer; text-decoration: none; color: inherit; display: flex; }
+      /* AI 搜尋的做法卡片整張可點，但內容要直的排，不能套上面那條 flex。 */
+      .card.option { display: block; cursor: pointer; }
       .card .row:last-child { border-bottom: 0 !important; }
 
       .chips { display: flex; gap: 7px; flex-wrap: wrap; }
@@ -167,6 +169,11 @@
         background: transparent; color: var(--text-dim);
       }
       input.mini.short { width: 60px; }
+      button.stop {
+        width: 100%; margin-top: 10px; padding: 11px 16px;
+        background: transparent; color: var(--danger); border: 1px solid rgba(192, 57, 43, 0.35);
+        font-size: 15px;
+      }
 
       /* 眼鏡同步：時間到橫幅黏在最上面，捲到哪都看得到。 */
       #live { position: sticky; top: 8px; z-index: 5; }

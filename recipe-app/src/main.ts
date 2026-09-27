@@ -121,6 +121,26 @@ async function boot() {
     onStartTimer: (recipe: Recipe, stepIndex: number) =>
       runtime!.startTimerFor(recipe, stepIndex),
     onDismissAlarm: () => void runtime!.dismissAlarm(),
+    onStopCooking: async (recipeId: string) => {
+      // 不煮了：進度、計時器、還沒響的提醒全部清掉，下次開始從頭來。
+      active.delete(recipeId)
+      await store.clearProgress(recipeId)
+      runtime!.cancelTimersFor(recipeId)
+      if (runtime!.loadedRecipeId === recipeId) {
+        // 眼鏡正在顯示這道：還有別道在煮就換過去，否則回到待命畫面。
+        cookingId = null
+        const next = (await store.listProgress()).sort((a, b) => b.updatedAt - a.updatedAt)[0]
+        const recipe = next ? await store.get(next.recipeId) : null
+        if (recipe && next) {
+          cookingId = recipe.id
+          updateSwitchable()
+          await runtime!.load(recipe, next.stepIndex)
+          return
+        }
+        await runtime!.unload()
+      }
+      updateSwitchable()
+    },
     glassesState: () => runtime!.state,
     onShowShopping: async (lines: string[]) => {
       // 採購清單接管眼鏡畫面，烹飪中的標記要收掉（但進度都還在，之後能接回來）。

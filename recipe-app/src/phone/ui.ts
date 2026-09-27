@@ -53,6 +53,8 @@ export interface PhoneUiHooks {
   onJumpToStep: (recipe: Recipe, stepIndex: number) => Promise<void>
   onStartTimer: (recipe: Recipe, stepIndex: number) => void
   onDismissAlarm: () => void
+  /** 不煮了：清掉這道菜的進度與計時器；眼鏡正在顯示它就換到別道或回待命。 */
+  onStopCooking: (recipeId: string) => Promise<void>
   /** 把採購清單推到眼鏡上顯示。 */
   onShowShopping: (lines: string[]) => Promise<void>
   glassesState: () => GlassesState
@@ -287,6 +289,8 @@ export class PhoneUi {
           this.hooks.onStartTimer(this.screen.recipe, Number(id))
         }
         return
+      case 'stop-cooking':
+        return this.stopCooking()
       case 'scroll-current':
         this.root.querySelector(`#step-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
         return
@@ -593,6 +597,23 @@ export class PhoneUi {
     if (!recipe) return
     try {
       await this.hooks.onCook(recipe)
+    } catch {
+      this.fail('沒辦法送到眼鏡，請確認眼鏡已經連上手機。')
+    }
+  }
+
+  private async stopCooking() {
+    if (this.screen.name !== 'detail') return
+    const recipe = this.screen.recipe
+    const hasTimers = this.hooks.glassesState().timers.some(t => t.recipeId === recipe.id)
+    const ok = window.confirm(
+      `結束「${recipe.name}」？\n做到哪一步${hasTimers ? '和正在跑的計時' : ''}會清掉，下次從頭開始。`,
+    )
+    if (!ok) return
+    try {
+      await this.hooks.onStopCooking(recipe.id)
+      this.flash(`已結束「${recipe.name}」`)
+      this.render()
     } catch {
       this.fail('沒辦法送到眼鏡，請確認眼鏡已經連上手機。')
     }
@@ -975,7 +996,7 @@ export class PhoneUi {
           .map(i => i.item)
           .join('、')
         return `
-        <div class="card option tappable" data-action="pick-option" data-id="${n}">
+        <div class="card option" data-action="pick-option" data-id="${n}">
           <div class="row" style="gap:8px;margin-bottom:4px">
             <span class="badge accent">${esc(o.label)}</span>
             <span class="title-row grow">${esc(r.name)}</span>
@@ -1092,6 +1113,13 @@ export class PhoneUi {
             : '眼鏡上：點擊下一步、上滑上一步、雙擊離開。<br>長按換另一道菜；要計時的步驟，點一下開始計時。'
         }
       </p>
+      ${
+        live
+          ? `<button class="stop" data-action="stop-cooking">結束烹飪（清掉進度${
+              state.timers.some(t => t.recipeId === recipe.id) ? '與計時' : ''
+            }）</button>`
+          : ''
+      }
       <div style="margin-top:14px">${this.livePanel(recipe.id)}</div>
 
       <h2>食材</h2>
