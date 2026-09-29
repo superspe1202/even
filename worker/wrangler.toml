@@ -1,0 +1,26 @@
+name = "recipe-glass-api"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+# Cloudflare 帳號 ID。不是機密（只是帳號編號，沒有權杖就什麼都做不了），
+# 寫在這裡部署時就不必另外設定 CLOUDFLARE_ACCOUNT_ID。
+account_id = "11212fa8cf9ac8619ba181aaa7f6c800"
+
+# 非機密設定放這裡；AI_API_KEY 與 APP_TOKEN 一律用
+# `wrangler secret put` 設定，不要寫進這個檔案（它會進版控）。
+[vars]
+# Gemini 的 OpenAI 相容端點。注意結尾是 /openai，程式會自己接上
+# /chat/completions，所以這裡不要多加路徑。
+AI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
+# 用你帳號實際可用的型號 ID 取代。列出清單：
+#   curl -s "https://generativelanguage.googleapis.com/v1beta/openai/models" \
+#     -H "authorization: Bearer $GEMINI_API_KEY" | grep '"id"'
+AI_MODEL = "gemini-3-flash"
+ALLOW_ORIGIN = "*"
+# 設成 "off" 可停用 response_format（程式在被拒絕時也會自動退回重試）。
+AI_JSON_MODE = "json_object"
+# 沒設定 AI_API_KEY 時改用 Cloudflare Workers AI（不需要任何金鑰）用的模型。
+WORKERS_AI_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+
+# Cloudflare Workers AI：模型跑在自己的 Cloudflare 帳號裡，沒有外部 API 金鑰。
+[ai]
+binding = "AI"
