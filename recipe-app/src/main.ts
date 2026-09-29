@@ -90,6 +90,7 @@ async function boot() {
     onTimersChange: timers => void store.saveTimers(timers),
     // 眼鏡上的任何變化（翻頁、換菜、計時、響鈴）都讓手機畫面跟著更新。
     onStateChange: () => ui?.syncFromGlasses(),
+    onRawEvent: event => ui?.logGlassesEvent(event),
   })
 
   const ok = await runtime.init()

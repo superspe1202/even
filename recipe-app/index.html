@@ -204,6 +204,13 @@
       button.fav-on svg { width: 22px; height: 22px; }
       .swipe-hint { text-align: center; margin-top: 12px; }
 
+      .event-row { padding: 8px 0; border-bottom: 1px solid var(--hairline); }
+      .event-row:last-child { border-bottom: 0; }
+      .event-row code {
+        display: block; font: 12px/1.4 ui-monospace, Menlo, monospace;
+        word-break: break-all; margin-top: 2px;
+      }
+
       button.stop {
         width: 100%; margin-top: 10px; padding: 11px 16px;
         background: transparent; color: var(--danger); border: 1px solid rgba(192, 57, 43, 0.35);

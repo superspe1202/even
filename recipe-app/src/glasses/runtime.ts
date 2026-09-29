@@ -42,11 +42,12 @@ interface GlassesBridge {
 }
 
 interface EventEnvelope {
-  eventType?: OsEventTypeList
+  eventType?: OsEventTypeList | string
 }
 interface EvenEvent {
   sysEvent?: EventEnvelope
   textEvent?: EventEnvelope
+  listEvent?: EventEnvelope
 }
 
 /** 計時結束後閃爍多久（毫秒），以及每次切換的間隔。 */
@@ -75,6 +76,8 @@ export interface RuntimeCallbacks {
    * 這裡不會每秒通知。
    */
   onStateChange?: (state: GlassesState) => void
+  /** 每一個從眼鏡收到的原始事件。給手機上的「事件紀錄」用，實機排查手勢問題。 */
+  onRawEvent?: (event: unknown) => void
 }
 
 /** 手機端要同步顯示的眼鏡狀態。 */
@@ -351,23 +354,45 @@ export class GlassesRuntime {
 
   private listen() {
     this.unsubscribe = this.bridge.onEvenHubEvent(event => {
+      this.callbacks.onRawEvent?.(event)
       const sysType = typeOf(event.sysEvent)
       const textType = typeOf(event.textEvent)
-      const is = (type: OsEventTypeList) => sysType === type || textType === type
+      const listType = typeOf(event.listEvent)
+      const is = (type: OsEventTypeList) =>
+        sysType === type || textType === type || listType === type
+
+      // 系統確認離開、或連線異常中斷：這時才收拾。
+      if (
+        sysType === OsEventTypeList.SYSTEM_EXIT_EVENT ||
+        sysType === OsEventTypeList.ABNORMAL_EXIT_EVENT
+      ) {
+        this.dispose()
+        this.callbacks.onExit?.()
+        return
+      }
+      // 前景切換、IMU 之類的系統事件不是手勢，不能掉到下面被當成點擊。
+      if (
+        sysType === OsEventTypeList.FOREGROUND_ENTER_EVENT ||
+        sysType === OsEventTypeList.FOREGROUND_EXIT_EVENT ||
+        sysType === OsEventTypeList.IMU_DATA_REPORT ||
+        is(OsEventTypeList.LONG_PRESS_RELEASE_EVENT)
+      ) {
+        return
+      }
 
       // 雙擊離開放在最前面：不論事件從哪個信封來，使用者都必須能退出。
+      // 只叫出系統的「確定離開？」對話框，這裡不收拾——使用者按取消的話
+      // App 還在畫面上，要繼續收得到事件。確定離開會再送 SYSTEM_EXIT_EVENT。
       if (is(OsEventTypeList.DOUBLE_CLICK_EVENT)) {
-        this.dispose()
         this.bridge.shutDownPageContainer(1)
-        this.callbacks.onExit?.()
         return
       }
 
       // 正在響鈴時，任何動作都先當作「我知道了」，不翻頁也不切換食譜。
       if (this.alarms.length) {
         if (
-          textType === OsEventTypeList.SCROLL_TOP_EVENT ||
-          textType === OsEventTypeList.SCROLL_BOTTOM_EVENT ||
+          is(OsEventTypeList.SCROLL_TOP_EVENT) ||
+          is(OsEventTypeList.SCROLL_BOTTOM_EVENT) ||
           is(OsEventTypeList.CLICK_EVENT) ||
           is(OsEventTypeList.LONG_PRESS_EVENT)
         ) {
@@ -376,12 +401,12 @@ export class GlassesRuntime {
         return
       }
 
-      if (textType === OsEventTypeList.SCROLL_TOP_EVENT) {
+      if (is(OsEventTypeList.SCROLL_TOP_EVENT)) {
         void this.go(-1)
         return
       }
       // 下滑永遠是下一頁——有計時的步驟不想計時，就用下滑跳過。
-      if (textType === OsEventTypeList.SCROLL_BOTTOM_EVENT) {
+      if (is(OsEventTypeList.SCROLL_BOTTOM_EVENT)) {
         void this.go(1)
         return
       }
@@ -398,13 +423,6 @@ export class GlassesRuntime {
           this.startTimerFor(this.recipe, view.stepIndex)
         } else void this.go(1)
         return
-      }
-      if (
-        sysType === OsEventTypeList.SYSTEM_EXIT_EVENT ||
-        sysType === OsEventTypeList.ABNORMAL_EXIT_EVENT
-      ) {
-        this.dispose()
-        this.callbacks.onExit?.()
       }
     })
   }
@@ -662,5 +680,9 @@ export class GlassesRuntime {
  */
 function typeOf(envelope?: EventEnvelope): OsEventTypeList | null {
   if (!envelope) return null
-  return envelope.eventType ?? OsEventTypeList.CLICK_EVENT
+  const raw = envelope.eventType
+  if (raw === undefined || raw === null) return OsEventTypeList.CLICK_EVENT
+  if (typeof raw === 'number') return raw
+  // 宿主有時送字串（"CLICK_EVENT"、"CLICK"），交給 SDK 的正規化。
+  return OsEventTypeList.fromJson(raw) ?? OsEventTypeList.CLICK_EVENT
 }

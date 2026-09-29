@@ -34,6 +34,7 @@ type Screen =
   | { name: 'import' }
   | { name: 'search' }
   | { name: 'shopping' }
+  | { name: 'events' }
   | { name: 'detail'; recipe: Recipe }
   | { name: 'editor'; recipe: Recipe; isNew: boolean }
 
@@ -130,6 +131,8 @@ export class PhoneUi {
   /** AI 搜尋給的幾種做法。挑了一種進編輯器後按返回，還能回來換另一種。 */
   private searchResults: RecipeOption[] = []
   private editorBaseline = ''
+  /** 最近收到的眼鏡原始事件（新的在前），給「眼鏡訊號」頁排查手勢用。 */
+  private glassesEvents: { at: number; json: string }[] = []
   /** 加了星號的食譜，排在食譜庫前面。 */
   private favorites = new Set<string>()
   /** 食譜庫左滑：正在拖的那一列，以及目前滑開的那一列。 */
@@ -182,6 +185,19 @@ export class PhoneUi {
       const live = this.root.querySelector('#live')
       if (live) live.innerHTML = this.alarmHtml()
     }
+  }
+
+  /** 外層每收到一個眼鏡事件就呼叫。只留最近 30 筆。 */
+  logGlassesEvent(event: unknown) {
+    let json: string
+    try {
+      json = JSON.stringify(event)
+    } catch {
+      json = String(event)
+    }
+    this.glassesEvents.unshift({ at: Date.now(), json })
+    this.glassesEvents.length = Math.min(this.glassesEvents.length, 30)
+    if (this.screen.name === 'events') this.render()
   }
 
   private tickCountdowns() {
@@ -267,6 +283,11 @@ export class PhoneUi {
         return this.go({ name: 'import' })
       case 'go-search':
         return this.go({ name: 'search' })
+      case 'go-events':
+        return this.go({ name: 'events' })
+      case 'clear-events':
+        this.glassesEvents = []
+        return this.render()
       case 'go-shopping':
         return this.go({ name: 'shopping' })
       case 'new-manual':
@@ -790,6 +811,8 @@ export class PhoneUi {
               ? this.searchScreen()
               : this.screen.name === 'shopping'
                 ? this.shoppingScreen()
+                : this.screen.name === 'events'
+                  ? this.eventsScreen()
                 : this.screen.name === 'detail'
                   ? this.detail(this.screen.recipe)
                 : this.editor(this.screen.recipe, this.screen.isNew)
@@ -967,7 +990,10 @@ export class PhoneUi {
                     style="margin:18px 0 10px" />`
           : '<div style="height:18px"></div>'
       }
-      <div id="library-list">${this.libraryList()}</div>`
+      <div id="library-list">${this.libraryList()}</div>
+      <button class="ghost" style="width:100%;margin-top:18px;font-size:14px" data-action="go-events">
+        眼鏡手勢沒反應？看眼鏡送來的訊號
+      </button>`
   }
 
   private catalog(): string {
@@ -1048,6 +1074,31 @@ export class PhoneUi {
   private renderCatalogResults() {
     const host = this.root.querySelector('#results')
     if (host) host.innerHTML = this.catalogResults()
+  }
+
+  /**
+   * 眼鏡訊號：把眼鏡送來的原始事件列出來。模擬器和實機的事件格式不一定一樣，
+   * 手勢沒反應時，截這個畫面就知道眼鏡到底送了什麼。
+   */
+  private eventsScreen(): string {
+    const time = (t: number) =>
+      new Date(t).toLocaleTimeString('zh-TW', { hour12: false })
+    const rows = this.glassesEvents
+      .map(
+        e => `
+        <div class="event-row">
+          <span class="caption">${time(e.at)}</span>
+          <code>${esc(e.json)}</code>
+        </div>`,
+      )
+      .join('')
+    return `
+      ${this.topBar('眼鏡訊號', '<button class="ghost" data-action="clear-events">清除</button>')}
+      <p class="caption" style="margin:0 2px 12px">
+        戴上眼鏡，依序做：點一下、點兩下、往上滑、往下滑、長按。<br>
+        每個動作眼鏡送來的訊號會列在下面，截圖傳給開發者就能對照修正。
+      </p>
+      <div class="card">${rows || '<p class="caption">還沒收到任何訊號。</p>'}</div>`
   }
 
   private shoppingScreen(): string {
