@@ -54,6 +54,8 @@ export interface PhoneUiHooks {
   onJumpToStep: (recipe: Recipe, stepIndex: number) => Promise<void>
   onStartTimer: (recipe: Recipe, stepIndex: number) => void
   onDismissAlarm: () => void
+  /** 眼鏡上的菜往前／往後一步（手機上的上一步、下一步、不用計時直接下一步）。 */
+  onStepBy: (delta: number) => Promise<void>
   /** 不煮了：清掉這道菜的進度與計時器；眼鏡正在顯示它就換到別道或回待命。 */
   onStopCooking: (recipeId: string) => Promise<void>
   /** 把採購清單推到眼鏡上顯示。 */
@@ -71,6 +73,14 @@ function stepLabel(step: number, stepTotal: number): string {
   if (step < 0) return '食材'
   if (step >= stepTotal) return '完成'
   return `步驟 ${step + 1}/${stepTotal}`
+}
+
+/**
+ * 計時器：圖示＋「還剩」＋倒數。只寫「04:58」會被當成現在時間，
+ * 所以一律包成這個樣子，一眼看得出是在倒數。
+ */
+function timerChip(endsAt: number): string {
+  return `<span class="timer-chip">${icon.timer}<span>還剩</span>${countdown(endsAt)}</span>`
 }
 
 /** 倒數文字。手機每秒只改這些元素的文字，不整頁重繪，按鈕才不會按到一半消失。 */
@@ -107,6 +117,7 @@ const icon = {
   star: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.8L12 16.8l-5.2 2.8 1-5.8-4.3-4.1 5.9-.8z"/></svg>',
   starOutline: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.8L12 16.8l-5.2 2.8 1-5.8-4.3-4.1 5.9-.8z"/></svg>',
   trash: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13"/></svg>',
+  timer: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.5 2"/><path d="M9.5 2.5h5"/><path d="M12 2.5V6"/></svg>',
   check: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
 }
 
@@ -346,6 +357,13 @@ export class PhoneUi {
         return this.deleteFromList(id!)
       case 'stop-cooking':
         return this.stopCooking()
+      case 'step-by':
+        try {
+          await this.hooks.onStepBy(Number(id))
+        } catch {
+          this.fail('沒辦法送到眼鏡，請確認眼鏡已經連上手機。')
+        }
+        return
       case 'scroll-current':
         this.root.querySelector(`#step-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
         return
@@ -843,7 +861,9 @@ export class PhoneUi {
     // 在某道菜的詳情頁時，那道菜自己的狀態頁面上方已經寫了，這裡不重複。
     const others = this.hooks.otherActiveDishes().filter(d => d.recipeId !== viewing)
     const showNow = state.mode !== 'idle' && state.recipeId !== viewing
-    if (!showNow && !state.timers.length && !others.length) return ''
+    // 正在看的這道菜自己的計時，頁面上的步驟列與狀態卡已經顯示，這裡只列別道菜的。
+    const timerList = state.timers.filter(t => t.recipeId !== viewing)
+    if (!showNow && !timerList.length && !others.length) return ''
 
     const now = !showNow
       ? ''
@@ -856,12 +876,12 @@ export class PhoneUi {
           ? '<div class="live-row"><b>採購清單</b></div>'
           : '<div class="live-row caption">眼鏡上沒有開著食譜</div>'
 
-    const timers = state.timers
+    const timers = timerList
       .map(
         t => `
         <a class="live-row tappable" data-action="open" data-id="${esc(t.recipeId)}">
           <span class="grow">${esc(t.recipeName)} · 步驟 ${t.stepIndex + 1}</span>
-          ${countdown(t.endsAt)}
+          ${timerChip(t.endsAt)}
         </a>`,
       )
       .join('')
@@ -1232,6 +1252,60 @@ export class PhoneUi {
       ${cards}`
   }
 
+  /**
+   * 眼鏡正在顯示這道菜時的狀態卡：在第幾步、上一步／下一步，以及這一步要不要計時。
+   *
+   * 要計時的步驟由使用者自己決定：可以按「開始計時」，也可以「不用計時，下一步」
+   * 直接往下走——不會因為沒計時就卡住。
+   */
+  private nowCard(recipe: Recipe, state: GlassesState): string {
+    const step = state.step
+    const inSteps = step >= 0 && step < state.stepTotal
+    const seconds = inSteps ? recipe.steps[step]?.timerSeconds : undefined
+    const running = inSteps
+      ? state.timers.find(t => t.recipeId === recipe.id && t.stepIndex === step)
+      : undefined
+    const choose = !!seconds && !running
+
+    return `
+      <div class="now-card">
+        <div class="between">
+          <div class="grow">
+            <div class="now-title">眼鏡正在顯示這道菜</div>
+            <div>${stepLabel(step, state.stepTotal)}</div>
+          </div>
+          ${
+            inSteps
+              ? `<button class="small" data-action="scroll-current" data-id="${step}">看這一步</button>`
+              : ''
+          }
+        </div>
+        ${running ? `<div style="margin-top:10px">${timerChip(running.endsAt)}</div>` : ''}
+        ${
+          choose
+            ? `
+        <div class="timer-ask">
+          <div class="timer-ask-q">${icon.timer} 這一步要等 ${formatDuration(seconds!)}，要計時嗎？</div>
+          <div class="row" style="gap:8px">
+            <button class="grow dark" data-action="start-timer" data-id="${step}">開始計時</button>
+            <button class="grow" data-action="step-by" data-id="1">不用，下一步</button>
+          </div>
+        </div>`
+            : ''
+        }
+        <div class="row nav-row">
+          <button class="grow" data-action="step-by" data-id="-1" ${step < 0 ? 'disabled' : ''}>‹ 上一步</button>
+          ${
+            choose
+              ? ''
+              : `<button class="grow" data-action="step-by" data-id="1" ${step >= state.stepTotal ? 'disabled' : ''}>${
+                  step === state.stepTotal - 1 ? '完成 ›' : '下一步 ›'
+                }</button>`
+          }
+        </div>
+      </div>`
+  }
+
   private detail(recipe: Recipe): string {
     const ingredients = recipe.ingredients
       .map(
@@ -1256,10 +1330,10 @@ export class PhoneUi {
         const timer = !s.timerSeconds
           ? ''
           : running
-            ? `<span class="badge accent">${countdown(running.endsAt)}</span>`
+            ? timerChip(running.endsAt)
             : live
-              ? `<button class="small timer-btn" data-action="start-timer" data-id="${n}">開始計時 ${formatDuration(s.timerSeconds)}</button>`
-              : `<span class="badge accent">${formatDuration(s.timerSeconds)}</span>`
+              ? `<button class="small timer-btn" data-action="start-timer" data-id="${n}">${icon.timer}開始計時 ${formatDuration(s.timerSeconds)}</button>`
+              : `<span class="badge accent timer-need">${icon.timer}要等 ${formatDuration(s.timerSeconds)}</span>`
         const tag = live ? 'a' : 'div'
         const attrs = live ? ` data-action="jump-step" data-id="${n}"` : ''
         return `
@@ -1285,18 +1359,7 @@ export class PhoneUi {
     // 眼鏡正在顯示這道菜時，不放一顆按不下去的灰按鈕（看起來像壞掉），
     // 改成一張狀態卡，並提供「看目前步驟」直接捲到那一步。
     const action = onGlasses
-      ? `
-      <div class="now-card">
-        <div class="grow">
-          <div class="now-title">眼鏡正在顯示這道菜</div>
-          <div>${stepLabel(state.step, state.stepTotal)}</div>
-        </div>
-        ${
-          state.step >= 0 && state.step < state.stepTotal
-            ? `<button class="small" data-action="scroll-current" data-id="${state.step}">看目前步驟</button>`
-            : ''
-        }
-      </div>`
+      ? this.nowCard(recipe, state)
       : `
       <button class="primary big" data-action="cook" ${this.busy ? 'disabled' : ''}>
         ${

@@ -294,7 +294,10 @@ export function footerText(
       : ''
   const hints = startable !== null ? startLadder(startable) : hintLadder(view, canSwitch)
 
-  const clock = timer ? `${timer.label ? `${timer.label} ` : ''}${formatClock(timer.remaining)}` : ''
+  // 寫明「倒數」：標頭右上角已經有現在時間，頁尾只放「04:56」會被當成另一個時鐘。
+  const clock = timer
+    ? `${timer.label ? `${timer.label} ` : ''}倒數 ${formatClock(timer.remaining)}`
+    : ''
   const more = timer?.others ? ` +${timer.others}` : ''
   const compose = (barWidth: number, hint: string | null) => {
     const bar = timer ? progressBar(timer.remaining, timer.total, barWidth) : ''

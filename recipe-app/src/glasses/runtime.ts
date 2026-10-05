@@ -242,6 +242,20 @@ export class GlassesRuntime {
     if (target >= 0) await this.jumpTo(target)
   }
 
+  /**
+   * 以「步驟」為單位前後移動（手機上的上一步／下一步）。眼鏡上的滑動是一頁一頁走，
+   * 手機按鈕則直接跳到下一步的第一頁；從食材頁往後是第一步，最後一步往後是完成頁。
+   */
+  async stepBy(delta: number): Promise<void> {
+    const view = this.view
+    if (!this.recipe || !view) return
+    const stepTotal = this.recipe.steps.length
+    const target = currentStepOf(view, stepTotal) + delta
+    if (target < 0) return this.jumpTo(0)
+    if (target >= stepTotal) return this.jumpTo(this.views.length - 1)
+    return this.jumpToStep(target)
+  }
+
   /** 某一步在眼鏡上的畫面索引，給外層切換食譜時直接載到那一步用。 */
   static viewIndexOfStep(recipe: Recipe, stepIndex: number): number {
     const target = buildViews(recipe).findIndex(

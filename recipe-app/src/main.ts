@@ -122,6 +122,7 @@ async function boot() {
     onStartTimer: (recipe: Recipe, stepIndex: number) =>
       runtime!.startTimerFor(recipe, stepIndex),
     onDismissAlarm: () => void runtime!.dismissAlarm(),
+    onStepBy: (delta: number) => runtime!.stepBy(delta),
     onStopCooking: async (recipeId: string) => {
       // 不煮了：進度、計時器、還沒響的提醒全部清掉，下次開始從頭來。
       active.delete(recipeId)
