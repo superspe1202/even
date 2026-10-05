@@ -56,6 +56,8 @@ export interface PhoneUiHooks {
   onDismissAlarm: () => void
   /** 眼鏡上的菜往前／往後一步（手機上的上一步、下一步、不用計時直接下一步）。 */
   onStepBy: (delta: number) => Promise<void>
+  /** 結束所有正在煮、煮到一半的菜，清掉全部計時，眼鏡回待命。 */
+  onStopAll: () => Promise<void>
   /** 不煮了：清掉這道菜的進度與計時器；眼鏡正在顯示它就換到別道或回待命。 */
   onStopCooking: (recipeId: string) => Promise<void>
   /** 把採購清單推到眼鏡上顯示。 */
@@ -355,6 +357,8 @@ export class PhoneUi {
         return this.toggleFavorite(id!)
       case 'delete-from-list':
         return this.deleteFromList(id!)
+      case 'stop-all':
+        return this.stopAll()
       case 'stop-cooking':
         return this.stopCooking()
       case 'step-by':
@@ -779,6 +783,27 @@ export class PhoneUi {
     this.flash(`已刪除「${entry.name}」`)
   }
 
+  private async stopAll() {
+    const state = this.hooks.glassesState()
+    const names = new Set<string>()
+    if (state.mode === 'recipe') names.add(state.title)
+    for (const d of this.hooks.otherActiveDishes()) names.add(d.name)
+    const timerCount = state.timers.length
+    const lines = [
+      names.size ? `結束 ${names.size} 道菜：${[...names].join('、')}` : '',
+      timerCount ? `取消 ${timerCount} 個計時` : '',
+      '做到哪一步都會清掉，下次從頭開始。',
+    ].filter(Boolean)
+    if (!window.confirm(`全部結束？\n\n${lines.join('\n')}`)) return
+    try {
+      await this.hooks.onStopAll()
+      this.flash('已全部結束')
+      this.render()
+    } catch {
+      this.fail('沒辦法送到眼鏡，請確認眼鏡已經連上手機。')
+    }
+  }
+
   private async stopCooking() {
     if (this.screen.name !== 'detail') return
     const recipe = this.screen.recipe
@@ -895,6 +920,13 @@ export class PhoneUi {
       )
       .join('')
 
+    const cookingCount =
+      (state.mode === 'recipe' ? 1 : 0) + this.hooks.otherActiveDishes().length
+    const stopAll =
+      viewing === undefined && (cookingCount > 0 || state.timers.length > 0)
+        ? `<button class="stop" data-action="stop-all">全部結束（清掉所有烹飪中的菜與計時）</button>`
+        : ''
+
     return `
       <div class="card live">
         ${now ? `<div class="label">眼鏡上</div>${now}` : ''}
@@ -905,6 +937,7 @@ export class PhoneUi {
                <div class="stack" style="margin-top:8px;gap:8px">${switches}</div>`
             : ''
         }
+        ${stopAll}
       </div>`
   }
 

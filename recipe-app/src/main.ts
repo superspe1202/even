@@ -123,6 +123,25 @@ async function boot() {
       runtime!.startTimerFor(recipe, stepIndex),
     onDismissAlarm: () => void runtime!.dismissAlarm(),
     onStepBy: (delta: number) => runtime!.stepBy(delta),
+    onStopAll: async () => {
+      // 全部不煮了：每一道的進度、所有計時（包括已煮完那道還沒響的）都清掉，
+      // 眼鏡回到待命畫面；正在看採購清單的話就留著清單不動。
+      const ids = new Set<string>([
+        ...active.keys(),
+        ...(await store.listProgress()).map(p => p.recipeId),
+        ...runtime!.state.timers.map(t => t.recipeId),
+      ])
+      if (cookingId) ids.add(cookingId)
+      for (const id of ids) {
+        await store.clearProgress(id)
+        runtime!.cancelTimersFor(id)
+      }
+      active = new Map()
+      const showingRecipe = runtime!.loadedRecipeId !== null
+      cookingId = null
+      updateSwitchable()
+      if (showingRecipe) await runtime!.unload()
+    },
     onStopCooking: async (recipeId: string) => {
       // 不煮了：進度、計時器、還沒響的提醒全部清掉，下次開始從頭來。
       active.delete(recipeId)
