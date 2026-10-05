@@ -1,0 +1,28 @@
+{
+  "package_id": "com.superspe.recipeglass",
+  "edition": "202601",
+  "name": "Recipe Glass",
+  "version": "0.2.0",
+  "min_app_version": "2.2.10",
+  "min_sdk_version": "0.0.15",
+  "entrypoint": "index.html",
+  "permissions": [
+    {
+      "name": "network",
+      "desc": "Sends the recipe web link you paste, or the dish name you type, to the recipe service so it can be turned into steps readable on the glasses. / 將你貼上的食譜網頁連結、或輸入的菜名，送到食譜解析服務轉換成可在眼鏡上閱讀的步驟。",
+      "whitelist": [
+        "https://recipe-glass-api.superspe.workers.dev"
+      ]
+    }
+  ],
+  "supported_languages": [
+    "en",
+    "zh",
+    "de",
+    "fr",
+    "es",
+    "it",
+    "ja",
+    "ko"
+  ]
+}
