@@ -118,6 +118,7 @@ const icon = {
   pencil: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>',
   star: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.8L12 16.8l-5.2 2.8 1-5.8-4.3-4.1 5.9-.8z"/></svg>',
   starOutline: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.8L12 16.8l-5.2 2.8 1-5.8-4.3-4.1 5.9-.8z"/></svg>',
+  stop: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor"/></svg>',
   trash: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13"/></svg>',
   timer: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.5 2"/><path d="M9.5 2.5h5"/><path d="M12 2.5V6"/></svg>',
   check: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
@@ -360,7 +361,12 @@ export class PhoneUi {
       case 'stop-all':
         return this.stopAll()
       case 'stop-cooking':
-        return this.stopCooking()
+        if (this.screen.name !== 'detail') return
+        return this.stopCooking(this.screen.recipe.id, this.screen.recipe.name)
+      case 'stop-from-list': {
+        const entry = this.index.find(e => e.id === id)
+        return entry ? this.stopCooking(entry.id, entry.name) : undefined
+      }
       case 'step-by':
         try {
           await this.hooks.onStepBy(Number(id))
@@ -681,13 +687,16 @@ export class PhoneUi {
 
   // ---------- 食譜庫左滑 ----------
 
-  private static readonly SWIPE_WIDTH = 152
+  /** 一列滑開時露出的寬度：每顆按鈕 76px，正在煮的菜多一顆「結束烹飪」。 */
+  private static swipeWidth(front: HTMLElement): number {
+    return Number(front.dataset.w) || 152
+  }
 
   private onSwipeStart(e: PointerEvent) {
     const front = (e.target as HTMLElement).closest<HTMLElement>('.swipe-front')
     if (this.swipeOpen && this.swipeOpen !== front) this.closeSwipe()
     if (!front) return
-    const base = front === this.swipeOpen ? -PhoneUi.SWIPE_WIDTH : 0
+    const base = front === this.swipeOpen ? -PhoneUi.swipeWidth(front) : 0
     this.swipe = { el: front, x: e.clientX, y: e.clientY, dx: 0, dragging: false, base }
   }
 
@@ -709,7 +718,7 @@ export class PhoneUi {
       s.el.parentElement?.classList.add('swiping')
     }
     s.dx = dx
-    const offset = Math.min(0, Math.max(-PhoneUi.SWIPE_WIDTH - 24, s.base + dx))
+    const offset = Math.min(0, Math.max(-PhoneUi.swipeWidth(s.el) - 24, s.base + dx))
     PhoneUi.setSwipe(s.el, offset)
   }
 
@@ -719,9 +728,10 @@ export class PhoneUi {
     if (!s || !s.dragging) return
     this.swipeEndedAt = Date.now()
     const offset = s.base + s.dx
-    const open = !cancelled && offset < -PhoneUi.SWIPE_WIDTH / 2
+    const width = PhoneUi.swipeWidth(s.el)
+    const open = !cancelled && offset < -width / 2
     s.el.style.transition = ''
-    PhoneUi.setSwipe(s.el, open ? -PhoneUi.SWIPE_WIDTH : 0)
+    PhoneUi.setSwipe(s.el, open ? -width : 0)
     this.swipeOpen = open ? s.el : null
     if (!open) this.hideActionsLater(s.el)
   }
@@ -804,17 +814,19 @@ export class PhoneUi {
     }
   }
 
-  private async stopCooking() {
-    if (this.screen.name !== 'detail') return
-    const recipe = this.screen.recipe
-    const hasTimers = this.hooks.glassesState().timers.some(t => t.recipeId === recipe.id)
+  /** 結束單一道菜：詳情頁的按鈕和食譜庫左滑的「結束烹飪」都走這裡。 */
+  private async stopCooking(id: string, name: string) {
+    const hasTimers = this.hooks.glassesState().timers.some(t => t.recipeId === id)
     const ok = window.confirm(
-      `結束「${recipe.name}」？\n做到哪一步${hasTimers ? '和正在跑的計時' : ''}會清掉，下次從頭開始。`,
+      `結束「${name}」？\n做到哪一步${hasTimers ? '和正在跑的計時' : ''}會清掉，下次從頭開始。`,
     )
-    if (!ok) return
+    if (!ok) {
+      this.closeSwipe()
+      return
+    }
     try {
-      await this.hooks.onStopCooking(recipe.id)
-      this.flash(`已結束「${recipe.name}」`)
+      await this.hooks.onStopCooking(id)
+      this.flash(`已結束「${name}」`)
       this.render()
     } catch {
       this.fail('沒辦法送到眼鏡，請確認眼鏡已經連上手機。')
@@ -969,9 +981,17 @@ export class PhoneUi {
     const rows = shown
       .map(e => {
         const fav = this.favorites.has(e.id)
+        const cookingNow = e.id === cooking || others.has(e.id)
         return `
         <div class="swipe">
           <div class="swipe-actions">
+            ${
+              cookingNow
+                ? `<button class="swipe-stop" data-action="stop-from-list" data-id="${esc(e.id)}">
+                     ${icon.stop}<span>結束烹飪</span>
+                   </button>`
+                : ''
+            }
             <button class="swipe-fav" data-action="toggle-fav" data-id="${esc(e.id)}">
               ${icon.starOutline}<span>${fav ? '取消星號' : '加星號'}</span>
             </button>
@@ -979,7 +999,7 @@ export class PhoneUi {
               ${icon.trash}<span>刪除</span>
             </button>
           </div>
-        <a class="card tappable row swipe-front" data-action="open" data-id="${esc(e.id)}">
+        <a class="card tappable row swipe-front" data-action="open" data-id="${esc(e.id)}" data-w="${cookingNow ? 228 : 152}">
           <div class="grow">
             <div class="title-row">${fav ? `<span class="fav-star" aria-label="已加星號">${icon.star}</span>` : ''}${esc(e.name)}</div>
             <div class="caption">${e.stepCount} 步驟 · ${e.totalMinutes} 分 · ${
@@ -999,7 +1019,12 @@ export class PhoneUi {
       .join('')
 
     if (rows) {
-      return `${rows}<p class="caption swipe-hint">往左滑一列，可以加星號或刪除。</p>`
+      const anyCooking = shown.some(e => e.id === cooking || others.has(e.id))
+      return `${rows}
+        <div class="swipe-hint">
+          <div><b>‹ 往左滑</b>一道菜，可以加星號或刪除</div>
+          ${anyCooking ? '<div>正在煮的菜，往左滑還能「結束烹飪」</div>' : ''}
+        </div>`
     }
     if (filter) return '<div class="empty">找不到這道菜。</div>'
     return '<div class="empty">還沒有食譜。<br>點上面的「精選料理」挑一道開始吧。</div>'

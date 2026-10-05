@@ -213,6 +213,9 @@
       }
       .swipe-fav { background: var(--accent); color: #232323; }
       .swipe-del { background: var(--danger); color: #ffffff; }
+      .swipe-stop { background: #232323; color: #ffffff; }
+      /* 滑開時把右邊的標籤收起來，讓菜名有地方顯示。 */
+      .swipe.swiping .swipe-front .badge, .swipe.swiping .swipe-front .chev { display: none; }
       .card.swipe-front {
         position: relative; margin-bottom: 0; touch-action: pan-y;
         width: 100%; transition: width 0.22s ease;
@@ -223,7 +226,8 @@
       .fav-star { display: inline-flex; color: #e0a800; margin-right: 6px; vertical-align: -2px; }
       button.fav-on { color: #e0a800; }
       button.fav-on svg { width: 22px; height: 22px; }
-      .swipe-hint { text-align: center; margin-top: 12px; }
+      .swipe-hint { text-align: center; margin-top: 12px; font-size: 14px; color: var(--text-dim); line-height: 1.7; }
+      .swipe-hint b { color: var(--text); font-weight: 500; }
 
       .event-row { padding: 8px 0; border-bottom: 1px solid var(--hairline); }
       .event-row:last-child { border-bottom: 0; }
