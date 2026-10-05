@@ -99,7 +99,8 @@ export function buildViews(recipe: Recipe): View[] {
     )
   })
 
-  views.push({ kind: 'done', body: `${recipe.name}\n\n完成了。\n雙擊離開。` })
+  // 內容由執行時期依「還有沒有別道在煮」用 doneBody() 產生，這裡只是預設值。
+  views.push({ kind: 'done', body: doneBody(recipe.name, false) })
 
   if (!views.length) views.push({ kind: 'empty', body: '這份食譜沒有內容。' })
   return views
@@ -415,5 +416,20 @@ export const IDLE_BODY = [
   '點擊  下一步',
   '上滑  上一步',
   '長按  換另一道菜',
-  '雙擊  離開',
+  '雙擊  關閉程式',
 ].join('\n')
+
+/**
+ * 完成頁。同時煮好幾道時，煮完這道就長按換到下一道——這道已經從「進行中」
+ * 拿掉，換走就等於關掉它；只剩這一道時不提長按，免得按了沒反應。
+ */
+export function doneBody(name: string, canSwitch: boolean): string {
+  return [
+    name,
+    '',
+    '完成了！',
+    '',
+    ...(canSwitch ? ['長按  換到還在煮的菜', '      （這道會一起關掉）'] : []),
+    '雙擊  關閉程式',
+  ].join('\n')
+}

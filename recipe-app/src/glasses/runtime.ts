@@ -24,6 +24,7 @@ import {
   buildShoppingViews,
   buildViews,
   currentStepOf,
+  doneBody,
   footerText,
   headerText,
   railSlots,
@@ -314,6 +315,10 @@ export class GlassesRuntime {
   setSwitchable(canSwitch: boolean): void {
     if (this.canSwitch === canSwitch) return
     this.canSwitch = canSwitch
+    // 完成頁的內文會寫「長按換到還在煮的菜」，可不可以換變了就要重寫。
+    if (this.view?.kind === 'done' && !this.alarms.length) {
+      void this.write(BODY.id, BODY.name, this.bodyText())
+    }
     void this.renderFooter()
   }
 
@@ -447,7 +452,7 @@ export class GlassesRuntime {
 
     await this.renderHeader()
     // 響鈴中內文歸閃爍畫面管，這裡不能蓋掉它；響完會再重畫一次。
-    if (!this.alarms.length) await this.write(BODY.id, BODY.name, view?.body ?? IDLE_BODY)
+    if (!this.alarms.length) await this.write(BODY.id, BODY.name, this.bodyText())
     await this.renderRail(view ? currentStepOf(view, stepTotal) : -1)
     await this.renderFooter()
 
@@ -456,6 +461,13 @@ export class GlassesRuntime {
       this.callbacks.onPositionChange?.(this.recipe.id, this.index, view.kind === 'done')
     }
     this.notify()
+  }
+
+  private bodyText(): string {
+    const view = this.view
+    if (!view) return IDLE_BODY
+    if (view.kind === 'done') return doneBody(this.title, this.canSwitch)
+    return view.body
   }
 
   /**

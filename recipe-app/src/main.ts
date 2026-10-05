@@ -183,6 +183,9 @@ async function switchToOther(store: RecipeStore): Promise<void> {
     updateSwitchable()
     return
   }
+  // 從煮完的那道（已經不在「進行中」）長按換走：它就算關掉了，
+  // 還沒響的計時也一起拿掉，不會在煮下一道時突然冒出來。
+  if (cookingId && !active.has(cookingId)) runtime!.cancelTimersFor(cookingId)
   cookingId = recipe.id
   updateSwitchable()
   await runtime!.load(recipe, next.stepIndex)
