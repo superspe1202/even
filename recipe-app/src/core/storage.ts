@@ -18,6 +18,15 @@ const PROGRESS_KEY = 'rg.progress'
 const SHOPPING_KEY = 'rg.shopping'
 const TIMERS_KEY = 'rg.timers'
 const FAVORITES_KEY = 'rg.favorites'
+const SETTINGS_KEY = 'rg.settings'
+
+/** 使用者設定。目前只有步驟計時要不要用。 */
+export interface Settings {
+  /** `ask`：走到要等的步驟時提示，自己決定要不要計時；`off`：完全不用計時。 */
+  timers: 'ask' | 'off'
+}
+
+const DEFAULT_SETTINGS: Settings = { timers: 'ask' }
 const RECIPE_PREFIX = 'rg.r.'
 /** 單筆 value 太大有風險，長食譜切塊存。 */
 const CHUNK_SIZE = 40_000
@@ -117,6 +126,15 @@ export class RecipeStore {
     }
     await this.clearProgress(id)
     await this.setFavorite(id, false)
+  }
+
+  async getSettings(): Promise<Settings> {
+    const parsed = parseJson<Partial<Settings>>(await this.bridge.getLocalStorage(SETTINGS_KEY), {})
+    return { ...DEFAULT_SETTINGS, ...(parsed && typeof parsed === 'object' ? parsed : {}) }
+  }
+
+  async saveSettings(settings: Settings): Promise<void> {
+    await this.bridge.setLocalStorage(SETTINGS_KEY, JSON.stringify(settings))
   }
 
   /** 加了星號的食譜 id。另外存一份，不動食譜本身的 updatedAt。 */

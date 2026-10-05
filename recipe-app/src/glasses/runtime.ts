@@ -57,6 +57,8 @@ const ALARM_BLINK_MS = 600
 /** 標頭時間更新間隔。只顯示到分鐘，不必秒更新，省藍牙流量。 */
 const CLOCK_TICK_MS = 20_000
 const TIMER_TICK_MS = 1_000
+/** 換頁後這段時間內收到的點擊視為多餘訊號，不處理。 */
+const CLICK_GUARD_MS = 500
 /**
  * App 關著的時候到期的計時器，重開時還在這段時間內就補響；更早的就不響了，
  * 免得隔天打開 App 還在對昨天的菜閃「時間到」。
@@ -136,6 +138,10 @@ export class GlassesRuntime {
   private lastHeader = ''
   /** 計時中頁尾每秒都會重算，文字沒變就不必再送一次藍牙封包。 */
   private lastFooter = ''
+  /** 使用者選了「不使用計時」：不提示、不開始倒數，點擊一律是下一頁。 */
+  private timersEnabled = true
+  /** 上一次換畫面的時間，用來擋掉換頁後緊跟著來的多餘點擊。 */
+  private lastNavAt = 0
   /** 有沒有另一道也在煮的食譜可以長按切過去，決定頁尾提示要不要提「長按切換」。 */
   private canSwitch = false
 
@@ -326,6 +332,18 @@ export class GlassesRuntime {
    * 外層（`main.ts`）在有進度的食譜集合改變時呼叫，更新頁尾要不要提示
    * 「長按切換」。只在真的變了才重畫頁尾，避免每次翻頁都多寫一次。
    */
+  /** 手機設定「步驟計時」改了。關掉時，已經在跑的計時照跑，只是不再提示開始新的。 */
+  setTimersEnabled(on: boolean): void {
+    if (this.timersEnabled === on) return
+    this.timersEnabled = on
+    void this.renderFooter()
+    this.notify()
+  }
+
+  get timersOn(): boolean {
+    return this.timersEnabled
+  }
+
   setSwitchable(canSwitch: boolean): void {
     if (this.canSwitch === canSwitch) return
     this.canSwitch = canSwitch
@@ -437,6 +455,9 @@ export class GlassesRuntime {
       // CLICK_EVENT 是 0，protobuf 會省略零值，所以它是「沒有型別」的退路，
       // 一定要放在所有具名事件之後才判斷。
       if (is(OsEventTypeList.CLICK_EVENT)) {
+        // 剛換到這一頁（滑過來、手機跳過來）半秒內的「點擊」不算數：實機上滑動之後
+        // 可能緊跟著一個沒有型別的事件，會被當成點擊，一到計時步驟就自己開始倒數。
+        if (Date.now() - this.lastNavAt < CLICK_GUARD_MS) return
         const view = this.view
         if (this.recipe && view?.kind === 'step' && this.startableSeconds() !== null) {
           this.startTimerFor(this.recipe, view.stepIndex)
@@ -461,6 +482,7 @@ export class GlassesRuntime {
   }
 
   private async render(): Promise<void> {
+    this.lastNavAt = Date.now()
     const view = this.view
     const stepTotal = this.recipe?.steps.length ?? 0
 
@@ -489,6 +511,7 @@ export class GlassesRuntime {
    * 而且是這一步的最後一頁（步驟內容看完了才開始，不會讀到一半就被搶走點擊）。
    */
   private startableSeconds(): number | null {
+    if (!this.timersEnabled) return null
     const view = this.view
     if (!this.recipe || !view || view.kind !== 'step') return null
     if (view.page !== view.pageCount - 1) return null

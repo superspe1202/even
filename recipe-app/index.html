@@ -236,6 +236,25 @@
         word-break: break-all; margin-top: 2px;
       }
 
+      /* 設定頁的單選卡片 */
+      button.option-card {
+        display: flex; align-items: flex-start; gap: 12px; text-align: left;
+        background: var(--surface); padding: 14px 16px; border: 2px solid transparent;
+      }
+      button.option-card.on { border-color: var(--text); }
+      .option-card .radio {
+        width: 22px; height: 22px; flex-shrink: 0; margin-top: 1px; border-radius: 50%;
+        border: 2px solid var(--text-dim); display: inline-flex; align-items: center; justify-content: center;
+      }
+      .option-card.on .radio { background: var(--text); border-color: var(--text); color: var(--surface); }
+      .option-title { display: block; font-weight: 500; margin-bottom: 2px; }
+      .option-card .caption { display: block; }
+      button.link {
+        background: transparent; padding: 8px 0 0; font-size: 14px; color: #5a5a2a;
+        text-decoration: underline; width: 100%;
+      }
+      .timer-ask button.link { background: transparent; color: #5a5a2a; }
+
       button.stop {
         width: 100%; margin-top: 10px; padding: 11px 16px;
         background: transparent; color: var(--danger); border: 1px solid rgba(192, 57, 43, 0.35);

@@ -93,6 +93,7 @@ async function boot() {
     onRawEvent: event => ui?.logGlassesEvent(event),
   })
 
+  runtime.setTimersEnabled((await store.getSettings()).timers !== 'off')
   const ok = await runtime.init()
   if (!ok) {
     root.innerHTML =
@@ -123,6 +124,11 @@ async function boot() {
       runtime!.startTimerFor(recipe, stepIndex),
     onDismissAlarm: () => void runtime!.dismissAlarm(),
     onStepBy: (delta: number) => runtime!.stepBy(delta),
+    timersEnabled: () => runtime!.timersOn,
+    onSetTimersEnabled: async (on: boolean) => {
+      runtime!.setTimersEnabled(on)
+      await store.saveSettings({ ...(await store.getSettings()), timers: on ? 'ask' : 'off' })
+    },
     onStopAll: async () => {
       // 全部不煮了：每一道的進度、所有計時（包括已煮完那道還沒響的）都清掉，
       // 眼鏡回到待命畫面；正在看採購清單的話就留著清單不動。

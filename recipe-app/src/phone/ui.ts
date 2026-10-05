@@ -35,6 +35,7 @@ type Screen =
   | { name: 'search' }
   | { name: 'shopping' }
   | { name: 'events' }
+  | { name: 'settings' }
   | { name: 'detail'; recipe: Recipe }
   | { name: 'editor'; recipe: Recipe; isNew: boolean }
 
@@ -56,6 +57,9 @@ export interface PhoneUiHooks {
   onDismissAlarm: () => void
   /** 眼鏡上的菜往前／往後一步（手機上的上一步、下一步、不用計時直接下一步）。 */
   onStepBy: (delta: number) => Promise<void>
+  /** 步驟計時有沒有開。關掉時不提示、不倒數，點擊一律下一頁。 */
+  timersEnabled: () => boolean
+  onSetTimersEnabled: (on: boolean) => Promise<void>
   /** 結束所有正在煮、煮到一半的菜，清掉全部計時，眼鏡回待命。 */
   onStopAll: () => Promise<void>
   /** 不煮了：清掉這道菜的進度與計時器；眼鏡正在顯示它就換到別道或回待命。 */
@@ -121,6 +125,7 @@ const icon = {
   stop: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor"/></svg>',
   trash: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13"/></svg>',
   timer: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 9.5v4l2.5 2"/><path d="M9.5 2.5h5"/><path d="M12 2.5V6"/></svg>',
+  gear: '<svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
   check: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
 }
 
@@ -297,6 +302,15 @@ export class PhoneUi {
         return this.go({ name: 'import' })
       case 'go-search':
         return this.go({ name: 'search' })
+      case 'go-settings':
+        return this.go({ name: 'settings' })
+      case 'set-timers':
+        await this.hooks.onSetTimersEnabled(id === 'ask')
+        return this.render()
+      case 'timers-off-from-ask':
+        await this.hooks.onSetTimersEnabled(false)
+        this.render()
+        return this.flash('已關閉計時，之後可以在「設定」重新打開')
       case 'go-events':
         return this.go({ name: 'events' })
       case 'clear-events':
@@ -868,6 +882,8 @@ export class PhoneUi {
                 ? this.shoppingScreen()
                 : this.screen.name === 'events'
                   ? this.eventsScreen()
+                  : this.screen.name === 'settings'
+                    ? this.settingsScreen()
                 : this.screen.name === 'detail'
                   ? this.detail(this.screen.recipe)
                 : this.editor(this.screen.recipe, this.screen.isNew)
@@ -1054,9 +1070,12 @@ export class PhoneUi {
     return `
       <div class="between" style="margin-bottom:16px">
         <h1>我的食譜</h1>
-        <button class="icon ghost" data-action="go-shopping" aria-label="採購清單">
-          ${icon.cart}${pending ? `<span class="dot">${pending}</span>` : ''}
-        </button>
+        <div class="row" style="gap:2px">
+          <button class="icon ghost" data-action="go-shopping" aria-label="採購清單">
+            ${icon.cart}${pending ? `<span class="dot">${pending}</span>` : ''}
+          </button>
+          <button class="icon ghost" data-action="go-settings" aria-label="設定">${icon.gear}</button>
+        </div>
       </div>
       ${this.livePanel()}
       <div class="label" style="margin:0 2px 8px">新增食譜</div>
@@ -1152,6 +1171,37 @@ export class PhoneUi {
   private renderCatalogResults() {
     const host = this.root.querySelector('#results')
     if (host) host.innerHTML = this.catalogResults()
+  }
+
+  private settingsScreen(): string {
+    const on = this.hooks.timersEnabled()
+    const option = (id: 'ask' | 'off', active: boolean, title: string, desc: string) => `
+      <button class="option-card${active ? ' on' : ''}" data-action="set-timers" data-id="${id}"
+              role="radio" aria-checked="${active}">
+        <span class="radio">${active ? icon.check : ''}</span>
+        <span class="grow">
+          <span class="option-title">${title}</span>
+          <span class="caption">${desc}</span>
+        </span>
+      </button>`
+    return `
+      ${this.topBar('設定')}
+      <h2 style="margin-top:0">步驟計時</h2>
+      <div class="stack" role="radiogroup">
+        ${option(
+          'ask',
+          on,
+          '自己決定（建議）',
+          '走到要等的步驟，會問你要不要計時。不按「開始計時」就不會倒數，也可以直接下一步。',
+        )}
+        ${option(
+          'off',
+          !on,
+          '不使用計時',
+          '不問、不倒數。眼鏡上點一下就是下一頁，手機上也不會出現計時按鈕。',
+        )}
+      </div>
+      <p class="caption" style="margin:14px 2px 0">已經在倒數的計時不受影響，會繼續跑到時間到。</p>`
   }
 
   /**
@@ -1323,7 +1373,7 @@ export class PhoneUi {
     const running = inSteps
       ? state.timers.find(t => t.recipeId === recipe.id && t.stepIndex === step)
       : undefined
-    const choose = !!seconds && !running
+    const choose = !!seconds && !running && this.hooks.timersEnabled()
 
     return `
       <div class="now-card">
@@ -1348,6 +1398,7 @@ export class PhoneUi {
             <button class="grow dark" data-action="start-timer" data-id="${step}">開始計時</button>
             <button class="grow" data-action="step-by" data-id="1">不用，下一步</button>
           </div>
+          <button class="link" data-action="timers-off-from-ask">以後都不用計時</button>
         </div>`
             : ''
         }
@@ -1389,7 +1440,7 @@ export class PhoneUi {
           ? ''
           : running
             ? timerChip(running.endsAt)
-            : live
+            : live && this.hooks.timersEnabled()
               ? `<button class="small timer-btn" data-action="start-timer" data-id="${n}">${icon.timer}開始計時 ${formatDuration(s.timerSeconds)}</button>`
               : `<span class="badge accent timer-need">${icon.timer}要等 ${formatDuration(s.timerSeconds)}</span>`
         const tag = live ? 'a' : 'div'
@@ -1450,7 +1501,9 @@ export class PhoneUi {
       <p class="caption" style="margin:10px 2px 0">
         ${
           live
-            ? '點下面的步驟，眼鏡就跳到那一步；<br>要計時的步驟也可以在這裡按開始。'
+            ? this.hooks.timersEnabled()
+              ? '點下面的步驟，眼鏡就跳到那一步；<br>要計時的步驟也可以在這裡按開始。'
+              : '點下面的步驟，眼鏡就跳到那一步。<br>計時已關閉，可以在「設定」打開。'
             : '眼鏡上：點擊下一步、上滑上一步、雙擊關閉程式。<br>長按換另一道菜（煮完的那道會一起關掉）；要計時的步驟，點一下開始計時。'
         }
       </p>
