@@ -26,10 +26,30 @@ export function isYouTube(url: string): boolean {
 }
 
 /**
- * 把食譜網頁連結送到後端解析成食譜。
- *
- * 不支援 YouTube：讀字幕得抓影片頁面與字幕檔，不是官方 API，有違反 YouTube
- * 使用條款的疑慮。`isYouTube` 留著，是為了舊版匯入的食譜還能標出來源。
+ * 影片連結（YouTube、TikTok、Bilibili、Vimeo、IG／FB 短影音）。目前只接受食譜網頁，
+ * 不做影片分析：讀影片內容得抓頁面或字幕檔，不是走官方 API，有違反平台條款的疑慮。
+ */
+export function isVideoLink(url: string): boolean {
+  try {
+    const u = new URL(url)
+    const host = u.hostname.toLowerCase().replace(/^(www|m)\./, '')
+    const path = u.pathname.toLowerCase()
+    if (/(^|\.)(youtube\.com|youtu\.be|tiktok\.com|douyin\.com|bilibili\.com|b23\.tv|vimeo\.com|fb\.watch)$/.test(host)) {
+      return true
+    }
+    if (/(^|\.)instagram\.com$/.test(host) && /^\/(reel|reels|tv)\//.test(path)) return true
+    if (/(^|\.)facebook\.com$/.test(host) && /^\/(watch|reel)/.test(path)) return true
+    return false
+  } catch {
+    return false
+  }
+}
+
+export const VIDEO_NOT_SUPPORTED = '目前不接受影片分析，請貼上食譜的網頁。'
+
+/**
+ * 把食譜網頁連結送到後端解析成食譜。只接受網頁，影片連結直接擋下（見 `isVideoLink`）。
+ * `isYouTube` 留著，是為了舊版匯入的 YouTube 食譜還能標出來源。
  *
  * 抓取與 AI 呼叫都在後端做，原因有二：金鑰不能放進 .ehpk（任何人都能解壓縮），
  * 以及 WebView 的 CORS 會擋掉絕大多數第三方網站。
@@ -44,9 +64,7 @@ export async function importFromUrl(url: string): Promise<Recipe> {
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
     throw new ImportError('請貼上網頁連結（http 或 https 開頭）。')
   }
-  if (isYouTube(url)) {
-    throw new ImportError('目前不支援 YouTube 影片。請貼食譜網頁，或直接用 AI 搜尋菜名。')
-  }
+  if (isVideoLink(url)) throw new ImportError(VIDEO_NOT_SUPPORTED)
   const payload = await postToService('/extract', { url })
   return normalizeRecipe(payload, url, 'web')
 }
@@ -54,7 +72,7 @@ export async function importFromUrl(url: string): Promise<Recipe> {
 /**
  * 呼叫後端並把各種失敗翻成白話。
  *
- * 後端回的 `{ "error": "..." }` 已經是寫給使用者看的句子（例如「這部影片沒有
+ * 後端回的 `{ "error": "..." }` 已經是寫給使用者看的句子（例如「這個網頁打不開
  * 字幕」），直接顯示；拿不到就依狀況給一句通用的，絕不把原始回應丟給使用者。
  */
 async function postToService(path: string, body: unknown): Promise<unknown> {

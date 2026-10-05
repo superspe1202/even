@@ -1288,7 +1288,7 @@ export class PhoneUi {
       <div class="stack">
         <div>
           <div class="label" style="margin-bottom:6px">食譜網頁連結</div>
-          <input id="url" type="url" inputmode="url" placeholder="https://" value="${esc(this.draftUrl)}" ${
+          <input id="url" type="url" inputmode="url" placeholder="貼上食譜網頁的網址 https://…" value="${esc(this.draftUrl)}" ${
             this.busy ? 'disabled' : ''
           } />
         </div>
@@ -1296,8 +1296,8 @@ export class PhoneUi {
           ${this.busy ? '解析中…' : '開始解析'}
         </button>
         <p class="caption">
+          可貼上食譜的網頁，目前不接受影片分析。<br>
           整理好的食譜會先讓你看過、修改，確認後才會存。
-          不支援 YouTube 影片，想做影片裡的菜，直接用 AI 搜尋菜名。
         </p>
       </div>`
   }

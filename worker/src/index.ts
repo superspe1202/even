@@ -147,18 +147,30 @@ interface SourceContent {
 }
 
 /**
- * 不支援 YouTube：讀字幕得直接抓影片頁面與字幕檔，不是走官方 API，
- * 有違反 YouTube 使用條款的疑慮；想做影片裡那道菜，用 AI 搜尋菜名就好。
+ * 影片連結（YouTube、TikTok、Bilibili、Vimeo、IG／FB 短影音）。目前只接受食譜網頁，
+ * 不做影片分析：讀影片內容得抓頁面或字幕檔，不是走官方 API，有違反平台條款的疑慮。
  */
-function isYouTube(target: string): boolean {
-  const host = new URL(target).hostname.replace(/^www\./, '').toLowerCase()
-  return host === 'youtube.com' || host.endsWith('.youtube.com') || host === 'youtu.be'
+function isVideoLink(url: string): boolean {
+  try {
+    const u = new URL(url)
+    const host = u.hostname.toLowerCase().replace(/^(www|m)\./, '')
+    const path = u.pathname.toLowerCase()
+    if (/(^|\.)(youtube\.com|youtu\.be|tiktok\.com|douyin\.com|bilibili\.com|b23\.tv|vimeo\.com|fb\.watch)$/.test(host)) {
+      return true
+    }
+    if (/(^|\.)instagram\.com$/.test(host) && /^\/(reel|reels|tv)\//.test(path)) return true
+    if (/(^|\.)facebook\.com$/.test(host) && /^\/(watch|reel)/.test(path)) return true
+    return false
+  } catch {
+    return false
+  }
 }
 
+const VIDEO_NOT_SUPPORTED = '目前不接受影片分析，請貼上食譜的網頁。'
+
+
 async function loadSource(target: string): Promise<SourceContent> {
-  if (isYouTube(target)) {
-    throw new UserFacingError('目前不支援 YouTube 影片。請貼食譜網頁，或直接用 AI 搜尋菜名。')
-  }
+  if (isVideoLink(target)) throw new UserFacingError(VIDEO_NOT_SUPPORTED)
 
   const response = await fetch(target, {
     headers: {

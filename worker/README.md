@@ -35,8 +35,8 @@ Recipe Glass 的解析後端，跑在 Cloudflare Worker 上。
 { "error": "這個網頁打不開，可能要登入才看得到，或已經失效。" }
 ```
 
-YouTube 連結會直接回「目前不支援 YouTube 影片」。讀字幕只能抓影片頁面與字幕檔，
-不是官方 API，有違反 YouTube 使用條款的疑慮，所以拿掉了；想做影片裡那道菜，用 `/generate` 搜菜名。
+影片連結（YouTube、TikTok、Bilibili、Vimeo、IG／FB 短影音）會直接回「目前不接受影片分析，請貼上食譜的網頁。」
+讀影片內容只能抓頁面與字幕檔，不是官方 API，有違反平台條款的疑慮，所以目前只接受食譜網頁。
 
 前端會再做一次欄位正規化（`src/core/importer.ts`），所以模型少給欄位或型別不對不會讓 App 崩潰。
 
@@ -198,7 +198,7 @@ npx wrangler dev
 
 ## 已知限制
 
-- **不支援 YouTube。** 見上方 `/extract` 的說明。
+- **不接受影片分析。** 見上方 `/extract` 的說明。
 - **需要登入或由 JavaScript 動態載入的頁面抓不到內容。** Worker 只拿得到初始 HTML，
   這種情況會回「這個頁面幾乎沒有文字內容」。
 - 網頁內容截到 24,000 字、下載上限 2 MB，避免 token 與記憶體失控。

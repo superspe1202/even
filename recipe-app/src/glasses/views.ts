@@ -4,10 +4,16 @@ import { formatClock, formatDuration } from '../core/timer'
 import { paginate, paginateLines } from './paginate'
 
 /** 版面幾何。改這裡就好，分頁會跟著重算。 */
-export const HEADER = { x: 0, y: 0, w: 576, h: 32, pad: 4, id: 1, name: 'header' } as const
+/*
+ * 每個只放一行字的容器，內高都要至少 36px（高度 − 上下 padding）。
+ * 實機字型的行高比模擬器高：內高 24～26px 時一行字放不下，韌體會在容器右緣
+ * 畫出捲軸，看起來就是一條一條的。右欄改成 40px 高之後條紋消失，標頭和頁尾
+ * 也比照辦理（實機回報：條紋只剩時間右邊與「雙擊離開」右邊）。
+ */
+export const HEADER = { x: 0, y: 0, w: 576, h: 40, pad: 2, id: 1, name: 'header' } as const
 /** 左欄。寬度從滿版 576 縮到 400，右邊讓給步驟進度欄。 */
-export const BODY = { x: 0, y: 34, w: 400, h: 214, pad: 4, id: 2, name: 'body' } as const
-export const FOOTER = { x: 0, y: 252, w: 576, h: 34, pad: 4, id: 3, name: 'footer' } as const
+export const BODY = { x: 0, y: 40, w: 400, h: 208, pad: 4, id: 2, name: 'body' } as const
+export const FOOTER = { x: 0, y: 248, w: 576, h: 40, pad: 2, id: 3, name: 'footer' } as const
 
 /**
  * 右欄：步驟進度。
@@ -26,15 +32,14 @@ export const RAIL = {
   x: 408,
   w: 168,
   /**
-   * 每格 40px 高。原本 30px 在模擬器上剛好放得下一行，但實機字型的行高比較高，
-   * 30px 會把字切成上下各一截，右欄看起來變成一條一條。拉高到 40px，
-   * 五格排滿左欄同高（34 + 4×43 + 40 = 246，頁尾從 252 開始）。
+   * 每格 38px 高、padding 1px，內高 36px。原本 30px 在模擬器上剛好放得下一行，
+   * 但實機字型的行高比較高，一行字放不下時韌體會在右緣畫捲軸，看起來一條一條的。
    */
-  h: 40,
-  pad: 2,
-  top: 34,
-  /** 相鄰兩格的間距（含 3px 縫）。 */
-  pitch: 43,
+  h: 38,
+  pad: 1,
+  top: 40,
+  /** 相鄰兩格的間距（含 4px 縫）。40 + 4×42 + 38 = 246，頁尾從 248 開始。 */
+  pitch: 42,
   slots: 5,
   /** 容器 id 4~8；header/body/footer 佔掉 1~3，總共 8 個，等於上限。 */
   firstId: 4,
