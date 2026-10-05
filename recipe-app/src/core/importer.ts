@@ -1,3 +1,4 @@
+import { getLang, hasKey, t } from '../i18n'
 import { newId } from './id'
 import type { Difficulty, Ingredient, Recipe, RecipeSource, Step } from './types'
 
@@ -45,8 +46,6 @@ export function isVideoLink(url: string): boolean {
   }
 }
 
-export const VIDEO_NOT_SUPPORTED = '目前不接受影片分析，請貼上食譜的網頁。'
-
 /**
  * 把食譜網頁連結送到後端解析成食譜。只接受網頁，影片連結直接擋下（見 `isVideoLink`）。
  * `isYouTube` 留著，是為了舊版匯入的 YouTube 食譜還能標出來源。
@@ -59,24 +58,25 @@ export async function importFromUrl(url: string): Promise<Recipe> {
   try {
     parsed = new URL(url)
   } catch {
-    throw new ImportError('網址看起來不完整，請確認有整段複製。')
+    throw new ImportError(t('e.invalid_url'))
   }
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-    throw new ImportError('請貼上網頁連結（http 或 https 開頭）。')
+    throw new ImportError(t('e.invalid_scheme'))
   }
-  if (isVideoLink(url)) throw new ImportError(VIDEO_NOT_SUPPORTED)
-  const payload = await postToService('/extract', { url })
+  if (isVideoLink(url)) throw new ImportError(t('e.video_unsupported'))
+  const payload = await postToService('/extract', { url, lang: getLang() })
   return normalizeRecipe(payload, url, 'web')
 }
 
 /**
  * 呼叫後端並把各種失敗翻成白話。
  *
- * 後端回的 `{ "error": "..." }` 已經是寫給使用者看的句子（例如「這個網頁打不開
- * 字幕」），直接顯示；拿不到就依狀況給一句通用的，絕不把原始回應丟給使用者。
+ * 後端回 `{ "error": "...", "code": "page_unreachable" }`：`code` 對到字典裡
+ * 使用者語言的句子（後端不知道使用者看得懂什麼，也不該寫死一種語言）；
+ * 認不得的代碼或舊版後端就依狀況給一句通用的，絕不把原始回應丟給使用者。
  */
 async function postToService(path: string, body: unknown): Promise<unknown> {
-  if (!API_BASE) throw new ImportError('這個功能目前還沒開放。')
+  if (!API_BASE) throw new ImportError(t('e.disabled'))
 
   let response: Response
   try {
@@ -86,29 +86,30 @@ async function postToService(path: string, body: unknown): Promise<unknown> {
       body: JSON.stringify(body),
     })
   } catch {
-    throw new ImportError('連不上網路，請確認手機有網路後再試一次。')
+    throw new ImportError(t('e.offline'))
   }
 
   if (!response.ok) {
-    const message = await readErrorMessage(response)
-    if (message) throw new ImportError(message)
+    const code = await readErrorCode(response)
+    const key = `e.${code}`
+    if (code && hasKey(key)) throw new ImportError(t(key))
     if (response.status === 401 || response.status === 403) {
-      throw new ImportError('這個功能目前無法使用。')
+      throw new ImportError(t('e.unauthorized'))
     }
-    throw new ImportError('整理食譜時出了點問題，請稍後再試。')
+    throw new ImportError(t('e.generic'))
   }
 
   try {
     return await response.json()
   } catch {
-    throw new ImportError('整理食譜時出了點問題，請稍後再試。')
+    throw new ImportError(t('e.generic'))
   }
 }
 
-async function readErrorMessage(response: Response): Promise<string> {
+async function readErrorCode(response: Response): Promise<string> {
   try {
-    const parsed = (await response.json()) as { error?: unknown }
-    return typeof parsed.error === 'string' ? parsed.error.trim() : ''
+    const parsed = (await response.json()) as { code?: unknown }
+    return typeof parsed.code === 'string' ? parsed.code : ''
   } catch {
     return ''
   }
@@ -135,9 +136,9 @@ export interface RecipeOption {
  */
 export async function generateFromQuery(query: string): Promise<RecipeOption[]> {
   const trimmed = query.trim()
-  if (!trimmed) throw new ImportError('請先輸入菜名，例如「番茄炒蛋」。')
-  if (trimmed.length > MAX_QUERY_LENGTH) throw new ImportError('菜名太長了，簡短一點就好。')
-  const payload = await postToService('/generate', { query: trimmed })
+  if (!trimmed) throw new ImportError(t('e.query_empty'))
+  if (trimmed.length > MAX_QUERY_LENGTH) throw new ImportError(t('e.query_too_long'))
+  const payload = await postToService('/generate', { query: trimmed, lang: getLang() })
   const raw = (payload as { options?: unknown } | null)?.options
   // 模型輸出不可信：缺步驟的那種做法直接略過，不要讓整次搜尋因為一種壞掉就失敗。
   const options = (Array.isArray(raw) ? raw : [])
@@ -145,7 +146,7 @@ export async function generateFromQuery(query: string): Promise<RecipeOption[]> 
       const e = (entry && typeof entry === 'object' ? entry : {}) as Record<string, unknown>
       try {
         return {
-          label: asString(e.label) || `做法 ${n + 1}`,
+          label: asString(e.label) || t('name.option', { n: n + 1 }),
           summary: asString(e.summary),
           recipe: normalizeRecipe(e.recipe, trimmed, 'ai'),
         }
@@ -154,7 +155,7 @@ export async function generateFromQuery(query: string): Promise<RecipeOption[]> 
       }
     })
     .filter((x): x is RecipeOption => x !== null)
-  if (!options.length) throw new ImportError('找不到這道菜的做法，換個說法試試看。')
+  if (!options.length) throw new ImportError(t('e.no_options'))
   return options
 }
 
@@ -218,13 +219,13 @@ export function normalizeRecipe(raw: unknown, sourceUrl: string, source: RecipeS
     : []
 
   if (!steps.length) {
-    throw new ImportError('這裡面找不到做菜的步驟，換一個試試看。')
+    throw new ImportError(t('e.no_steps'))
   }
 
   const now = Date.now()
   return {
     id: newId(),
-    name: asString(obj.name) || asString(obj.title) || '未命名食譜',
+    name: asString(obj.name) || asString(obj.title) || t('name.untitled'),
     servings: asPositiveInt(obj.servings, 2),
     totalMinutes: asPositiveInt(obj.totalMinutes, 30),
     difficulty: asDifficulty(obj.difficulty, steps.length),
@@ -255,7 +256,7 @@ export function emptyRecipe(): Recipe {
   const now = Date.now()
   return {
     id: newId(),
-    name: '新食譜',
+    name: t('name.new'),
     servings: 2,
     totalMinutes: 30,
     difficulty: 'easy',

@@ -43,7 +43,8 @@
 
 | 功能 | 眼鏡端 | 手機端 |
 | --- | --- | --- |
-| 精選台灣料理 | — | 28 道內建食譜，搜尋／篩選／排序／一鍵加入 |
+| 精選料理 | — | 44 道台灣／日本／韓國內建食譜，搜尋／篩選（菜系、分類、難易度）／排序／一鍵加入 |
+| 多語言 | — | 8 種語言，跟隨手機語言、沒有就英文；手機、眼鏡、內建與 AI 食譜都翻譯（見 [多語言.md](多語言.md)） |
 | URL 匯入 | — | 貼上食譜網頁連結，AI 解析成食材與步驟（只接受網頁，目前不接受影片分析） |
 | AI 搜尋食譜 | — | 打菜名／關鍵字，AI 列出幾種常見做法，挑一種、確認後才存 |
 | 食譜庫 | 顯示目前食譜名稱 | 清單、新增、刪除 |
@@ -235,14 +236,14 @@ worker/                   Cloudflare Worker
   "package_id": "com.superspe.recipeglass",
   "edition": "202601",
   "name": "Recipe Glass",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "min_app_version": "2.2.10",
   "min_sdk_version": "0.0.15",
   "entrypoint": "index.html",
   "permissions": [
     { "name": "network", "desc": "...", "whitelist": ["https://你的-worker.workers.dev"] }
   ],
-  "supported_languages": ["zh", "en"]
+  "supported_languages": ["en", "zh", "de", "fr", "es", "it", "ja", "ko"]
 }
 ```
 
@@ -260,5 +261,7 @@ worker/                   Cloudflare Worker
 - [ ] 手機切背景再回來，步驟與計時狀態正確還原
 - [ ] 手機上點步驟、換菜、開始計時，眼鏡即時跟著動；眼鏡上翻頁，手機跟著更新
 - [ ] 雙擊在任何畫面都能離開 App
-- [ ] 上架說明註明「計時器為視覺提示，無聲音」
+- [ ] 上架說明註明「計時器為視覺提示，無聲音」（8 種語言版本見 [上架文案.md](上架文案.md)）
+- [ ] 重新部署 Worker（新版認得 `lang` 並回傳錯誤代碼）
+- [ ] 真機確認日文、韓文在眼鏡上顯示正常（檢查腳本只比對字型表，沒有實機）
 - [ ] `npm run pack` 產出 `.ehpk` 並上傳開發者後台送審

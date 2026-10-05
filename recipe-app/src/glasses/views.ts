@@ -1,4 +1,5 @@
 import { getTextWidth, measureTextWrap } from '@evenrealities/pretext'
+import { t } from '../i18n'
 import type { Recipe } from '../core/types'
 import { formatClock, formatDuration } from '../core/timer'
 import { paginate, paginateLines } from './paginate'
@@ -86,7 +87,7 @@ export function buildViews(recipe: Recipe): View[] {
   if (recipe.ingredients.length) {
     // 標題和食材一起交給行打包器，第一頁才不會只放一行標題就換頁。
     const lines = [
-      `食材（${recipe.servings} 人份）`,
+      t('g.ingredientsHeading', { n: recipe.servings }),
       ...recipe.ingredients.map(i => (i.amount ? `· ${i.item}  ${i.amount}` : `· ${i.item}`)),
     ]
     const pages = paginateLines(lines, BODY_INNER)
@@ -107,7 +108,7 @@ export function buildViews(recipe: Recipe): View[] {
   // 內容由執行時期依「還有沒有別道在煮」用 doneBody() 產生，這裡只是預設值。
   views.push({ kind: 'done', body: doneBody(recipe.name, false) })
 
-  if (!views.length) views.push({ kind: 'empty', body: '這份食譜沒有內容。' })
+  if (!views.length) views.push({ kind: 'empty', body: t('g.emptyRecipe') })
   return views
 }
 
@@ -115,13 +116,13 @@ function headerLeftText(title: string, stepTotal: number, view: View | null): st
   if (!view) return title
   switch (view.kind) {
     case 'ingredients':
-      return `${title} · 食材`
+      return t('g.hdrIngredients', { title })
     case 'step':
-      return `${title} · 步驟 ${view.stepIndex + 1}/${stepTotal}`
+      return t('g.hdrStep', { title, n: view.stepIndex + 1, total: stepTotal })
     case 'shopping':
       return view.pageCount > 1 ? `${title} ${view.page + 1}/${view.pageCount}` : title
     case 'done':
-      return `${title} · 完成`
+      return t('g.hdrDone', { title })
     default:
       return title
   }
@@ -178,7 +179,7 @@ export function headerText(
  */
 export function buildShoppingViews(lines: string[]): View[] {
   if (!lines.length) {
-    return [{ kind: 'empty', body: '採購清單是空的。\n\n在手機上把食譜的食材加進來。' }]
+    return [{ kind: 'empty', body: t('g.shoppingEmpty') }]
   }
   const pages = paginateLines(lines, BODY_INNER)
   return pages.map((body, page) => ({
@@ -219,9 +220,22 @@ export function timerLabel(
   currentStep: number,
 ): string {
   if (timer.recipeId === recipeId) {
-    return timer.stepIndex === currentStep ? '' : `步驟${timer.stepIndex + 1}`
+    return timer.stepIndex === currentStep ? '' : t('g.timerStep', { n: timer.stepIndex + 1 })
   }
-  return Array.from(timer.recipeName).slice(0, 4).join('')
+  return clipToWidth(timer.recipeName, DISH_LABEL_PX)
+}
+
+/** 別道菜的名字放進頁尾最多佔這麼寬（約四個中文字、八九個英文字母）。 */
+const DISH_LABEL_PX = 90
+
+/** 照實際字寬截到放得下，不加省略號（頁尾寸土寸金，名字只是用來認得是哪道菜）。 */
+function clipToWidth(text: string, maxPx: number): string {
+  let out = ''
+  for (const ch of Array.from(text)) {
+    if (getTextWidth(out + ch) > maxPx) break
+    out += ch
+  }
+  return out.trim()
 }
 
 /**
@@ -238,15 +252,10 @@ function progressBar(remaining: number, total: number, width: number): string {
   return '━'.repeat(filled) + '─'.repeat(width - filled)
 }
 
-const HINT_FULL = '點擊下一頁 · 上滑回上頁 · 雙擊離開'
-const HINT_FULL_SWITCHABLE = '點擊下一頁 · 上滑回上頁 · 長按切換食譜 · 雙擊離開'
-const HINT_SHORT = '點擊繼續 · 雙擊離開'
-const HINT_SHORT_SWITCHABLE = '點擊繼續 · 長按切換 · 雙擊離開'
-const HINT_MINIMAL = '雙擊離開'
-const HINT_MINIMAL_SWITCHABLE = '長按切換食譜 · 雙擊離開'
-
 /** 計時響起時的頁尾。任何手勢都先當「知道了」，不會順手翻頁。 */
-export const ALARM_FOOTER = '時間到 · 點擊知道了'
+export function alarmFooter(): string {
+  return t('g.alarmFooter')
+}
 
 /**
  * 依畫面種類與「有沒有另一道食譜可切換」決定提示的降級順序。
@@ -255,12 +264,16 @@ export const ALARM_FOOTER = '時間到 · 點擊知道了'
  * 留得住，切換食譜是加分的資訊，放不下就先犧牲它。
  */
 function hintLadder(view: View | null, canSwitch: boolean): string[] {
+  const full = t('g.hintFull')
+  const fullSw = t('g.hintFullSw')
+  const short = t('g.hintShort')
+  const shortSw = t('g.hintShortSw')
+  const minimal = t('g.hintMin')
+  const minimalSw = t('g.hintMinSw')
   if (!view || view.kind === 'done') {
-    return canSwitch ? [HINT_MINIMAL_SWITCHABLE, HINT_MINIMAL] : [HINT_MINIMAL]
+    return canSwitch ? [minimalSw, minimal] : [minimal]
   }
-  return canSwitch
-    ? [HINT_FULL_SWITCHABLE, HINT_SHORT_SWITCHABLE, HINT_MINIMAL_SWITCHABLE, HINT_MINIMAL]
-    : [HINT_FULL, HINT_SHORT, HINT_MINIMAL]
+  return canSwitch ? [fullSw, shortSw, minimalSw, minimal] : [full, short, minimal]
 }
 
 /**
@@ -269,12 +282,7 @@ function hintLadder(view: View | null, canSwitch: boolean): string[] {
  */
 function startLadder(seconds: number): string[] {
   const d = formatDuration(seconds)
-  return [
-    `點擊開始計時 ${d} · 下滑跳過 · 雙擊離開`,
-    `點擊開始計時 ${d} · 下滑跳過`,
-    `點擊開始計時 ${d}`,
-    '點擊開始計時',
-  ]
+  return [t('g.start1', { d }), t('g.start2', { d }), t('g.start3', { d }), t('g.start4')]
 }
 
 /**
@@ -301,7 +309,9 @@ export function footerText(
 
   // 寫明「倒數」：標頭右上角已經有現在時間，頁尾只放「04:56」會被當成另一個時鐘。
   const clock = timer
-    ? `${timer.label ? `${timer.label} ` : ''}倒數 ${formatClock(timer.remaining)}`
+    ? timer.label
+      ? t('g.countdownFor', { label: timer.label, t: formatClock(timer.remaining) })
+      : t('g.countdown', { t: formatClock(timer.remaining) })
     : ''
   const more = timer?.others ? ` +${timer.others}` : ''
   const compose = (barWidth: number, hint: string | null) => {
@@ -329,7 +339,9 @@ export interface RailSlot {
  * 通常剛好就是動作本身（「炒蛋至七分熟。油要多一點」→「炒蛋至七分熟」）。
  */
 export function stepLabel(text: string): string {
-  return text.split(/[，。：；、\n]/)[0].trim() || text.trim()
+  // 中日文標點、換行，以及西文後面接空白的標點（「1.5」「3,000」裡的小數點不切）。
+  const first = text.split(/[，。：；、]|\n|[,.:;!?](?=\s)/)[0].trim()
+  return (first || text.trim()).replace(/[.!?:;,]+$/, '')
 }
 
 /**
@@ -351,7 +363,14 @@ const ELLIPSIS = '...'
 function fitLabel(label: string, width: number): string {
   if (measureTextWrap(label, width).lineCount <= 1) return label
   for (let len = label.length - 1; len > 0; len--) {
-    const candidate = `${label.slice(0, len)}${ELLIPSIS}`
+    let cut = label.slice(0, len)
+    // 西文盡量切在字與字之間，「3 Cut tomato in...」不如「3 Cut tomato...」。
+    // 開頭「編號 + 空白」那個空白不算（index 1~2）。
+    const space = cut.lastIndexOf(' ')
+    if (space > 3 && label[len] !== ' ' && /[\p{L}\p{N}]/u.test(label[len] ?? '') && /[A-Za-zÀ-ÿ]/.test(cut[len - 1])) {
+      cut = cut.slice(0, space)
+    }
+    const candidate = `${cut.trimEnd()}${ELLIPSIS}`
     if (measureTextWrap(candidate, width).lineCount <= 1) return candidate
   }
   return ELLIPSIS
@@ -411,21 +430,16 @@ export function currentStepOf(view: View, stepTotal: number): number {
  * `where` 一定要寫：響的可能是另一道菜、或早就翻過去的那一步。
  */
 export function alarmBody(where: string, step: string): string {
-  return `時 間 到\n\n${where}\n${step}`
+  return `${t('g.alarmTitle')}\n\n${where}\n${step}`
 }
 
 /**
  * 待命畫面，也是第一次打開時看到的畫面：直接教四個手勢。
  * 計時怎麼開始不寫在這裡——等真的走到有計時的那一步，頁尾會當場提示。
  */
-export const IDLE_BODY = [
-  '在手機上選一道菜，按開始烹飪。',
-  '',
-  '點擊  下一步',
-  '上滑  上一步',
-  '長按  換另一道菜',
-  '雙擊  關閉程式',
-].join('\n')
+export function idleBody(): string {
+  return [t('g.idleHello'), '', t('g.gTap'), t('g.gUp'), t('g.gHold'), t('g.gDouble')].join('\n')
+}
 
 /**
  * 完成頁。同時煮好幾道時，煮完這道就長按換到下一道——這道已經從「進行中」
@@ -435,9 +449,9 @@ export function doneBody(name: string, canSwitch: boolean): string {
   return [
     name,
     '',
-    '完成了！',
+    t('g.doneTitle'),
     '',
-    ...(canSwitch ? ['長按  換到還在煮的菜', '      （這道會一起關掉）'] : []),
-    '雙擊  關閉程式',
+    ...(canSwitch ? [t('g.doneSwitch')] : []),
+    t('g.gDouble'),
   ].join('\n')
 }

@@ -1,4 +1,5 @@
 import { ShoppingList } from './shopping'
+import { LANG_CODES, type LangSetting } from '../i18n'
 import type { RunningTimer } from './timer'
 import type { CookingProgress, Recipe, RecipeIndexEntry } from './types'
 
@@ -20,13 +21,15 @@ const TIMERS_KEY = 'rg.timers'
 const FAVORITES_KEY = 'rg.favorites'
 const SETTINGS_KEY = 'rg.settings'
 
-/** 使用者設定。目前只有步驟計時要不要用。 */
+/** 使用者設定。 */
 export interface Settings {
   /** `ask`：走到要等的步驟時提示，自己決定要不要計時；`off`：完全不用計時。 */
   timers: 'ask' | 'off'
+  /** `auto`：跟著手機的語言；否則是使用者指定的語言。 */
+  lang: LangSetting
 }
 
-const DEFAULT_SETTINGS: Settings = { timers: 'ask' }
+const DEFAULT_SETTINGS: Settings = { timers: 'ask', lang: 'auto' }
 const RECIPE_PREFIX = 'rg.r.'
 /** 單筆 value 太大有風險，長食譜切塊存。 */
 const CHUNK_SIZE = 40_000
@@ -108,6 +111,7 @@ export class RecipeStore {
       totalMinutes: recipe.totalMinutes,
       difficulty: recipe.difficulty,
       updatedAt: recipe.updatedAt,
+      ...(recipe.catalogSlug ? { catalogSlug: recipe.catalogSlug } : {}),
     }
     const at = index.findIndex(e => e.id === recipe.id)
     if (at >= 0) index[at] = entry
@@ -130,7 +134,12 @@ export class RecipeStore {
 
   async getSettings(): Promise<Settings> {
     const parsed = parseJson<Partial<Settings>>(await this.bridge.getLocalStorage(SETTINGS_KEY), {})
-    return { ...DEFAULT_SETTINGS, ...(parsed && typeof parsed === 'object' ? parsed : {}) }
+    const merged = { ...DEFAULT_SETTINGS, ...(parsed && typeof parsed === 'object' ? parsed : {}) }
+    // 存的值不認得（例如以後移除了某個語言）就當作跟著手機。
+    if (merged.lang !== 'auto' && !(LANG_CODES as readonly string[]).includes(merged.lang)) {
+      merged.lang = 'auto'
+    }
+    return merged
   }
 
   async saveSettings(settings: Settings): Promise<void> {

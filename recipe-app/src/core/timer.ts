@@ -1,3 +1,4 @@
+import { t } from '../i18n'
 /**
  * 步驟計時器。
  *
@@ -49,8 +50,8 @@ export function formatClock(totalSeconds: number): string {
 
 /** 給人讀的長度：「45 秒」「5 分鐘」「1 分 30 秒」。 */
 export function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${seconds} 秒`
+  if (seconds < 60) return t('dur.sec', { n: seconds })
   const m = Math.floor(seconds / 60)
   const s = seconds % 60
-  return s ? `${m} 分 ${s} 秒` : `${m} 分鐘`
+  return s ? t('dur.minSec', { m, s }) : t('dur.min', { n: m })
 }

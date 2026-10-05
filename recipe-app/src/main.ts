@@ -4,6 +4,15 @@ import { RecipeStore } from './core/storage'
 import type { RunningTimer } from './core/timer'
 import type { Recipe } from './core/types'
 import { GlassesRuntime } from './glasses/runtime'
+import {
+  detectLang,
+  onLangChange,
+  phoneLanguageTag,
+  resolveLang,
+  setLang,
+  t,
+  type LangSetting,
+} from './i18n'
 import { buildViews, currentStepOf } from './glasses/views'
 import { PhoneUi, type ActiveDish } from './phone/ui'
 
@@ -55,6 +64,10 @@ function dishAt(recipe: Recipe, viewIndex: number): ActiveDish {
   }
 }
 
+// 先照手機語言設好，連啟動失敗的提示都是使用者看得懂的語言；
+// 讀到使用者存的設定之後再照設定改。
+setLang(detectLang())
+
 async function boot() {
   const root = document.querySelector<HTMLDivElement>('#app')
   if (!root) throw new Error('找不到 #app 容器')
@@ -93,11 +106,12 @@ async function boot() {
     onRawEvent: event => ui?.logGlassesEvent(event),
   })
 
-  runtime.setTimersEnabled((await store.getSettings()).timers !== 'off')
+  const settings = await store.getSettings()
+  setLang(resolveLang(settings.lang))
+  runtime.setTimersEnabled(settings.timers !== 'off')
   const ok = await runtime.init()
   if (!ok) {
-    root.innerHTML =
-      '<div class="error">眼鏡畫面開不起來。請確認眼鏡已經連上手機，再重新打開 App。</div>'
+    root.innerHTML = `<div class="error">${t('e.glasses_boot')}</div>`
     return
   }
 
@@ -128,6 +142,13 @@ async function boot() {
     onSetTimersEnabled: async (on: boolean) => {
       runtime!.setTimersEnabled(on)
       await store.saveSettings({ ...(await store.getSettings()), timers: on ? 'ask' : 'off' })
+    },
+    languageSetting: async () => (await store.getSettings()).lang,
+    phoneLanguage: () => phoneLanguageTag(),
+    onSetLanguage: async (lang: LangSetting) => {
+      await store.saveSettings({ ...(await store.getSettings()), lang })
+      // setLang 會通知下面訂閱的人：手機畫面重畫、眼鏡畫面重排。
+      setLang(resolveLang(lang))
     },
     onStopAll: async () => {
       // 全部不煮了：每一道的進度、所有計時（包括已煮完那道還沒響的）都清掉，
@@ -184,6 +205,11 @@ async function boot() {
     },
   })
   await ui.start()
+  // 語言切換（設定頁選的）：手機畫面與眼鏡畫面一起換。
+  onLangChange(() => {
+    ui?.relocalize()
+    void runtime?.relocalize()
+  })
 
   await resume(store)
   runtime.restoreTimers(restored?.timers ?? (await store.getTimers()))
@@ -256,5 +282,5 @@ window.addEventListener('beforeunload', () => runtime?.dispose())
 boot().catch(err => {
   console.error('啟動失敗：', err)
   const root = document.querySelector<HTMLDivElement>('#app')
-  if (root) root.innerHTML = '<div class="error">App 啟動失敗，請關掉再重新打開。</div>'
+  if (root) root.innerHTML = `<div class="error">${t('e.app_boot')}</div>`
 })

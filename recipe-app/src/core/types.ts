@@ -1,3 +1,5 @@
+import { t } from '../i18n'
+
 /** 食材項目。`amount` 是自由文字（「2 大匙」「約 300g」），不做單位解析。 */
 export interface Ingredient {
   id: string
@@ -22,10 +24,9 @@ export type RecipeSource = 'manual' | 'web' | 'youtube' | 'catalog' | 'ai'
 /** 難易度。只有三級 —— 再細分使用者也分不出差別。 */
 export type Difficulty = 'easy' | 'medium' | 'hard'
 
-export const DIFFICULTY_LABEL: Record<Difficulty, string> = {
-  easy: '簡單',
-  medium: '中等',
-  hard: '困難',
+/** 依目前語言的難易度文字。 */
+export function difficultyLabel(d: Difficulty): string {
+  return t(`diff.${d}`)
 }
 
 /** 排序用的權重，讓「由簡到難」有明確順序。 */
@@ -39,6 +40,8 @@ export interface Recipe {
   totalMinutes: number
   difficulty: Difficulty
   source: RecipeSource
+  /** 從內建食譜加入的，記下它是哪一道（slug），換語言瀏覽時才認得出「已經加過」。 */
+  catalogSlug?: string
   /** 來源網址；`source` 是 `ai` 時借這個欄位存當初搜尋用的查詢字串。 */
   sourceUrl?: string
   ingredients: Ingredient[]
@@ -55,6 +58,7 @@ export interface RecipeIndexEntry {
   totalMinutes: number
   difficulty: Difficulty
   updatedAt: number
+  catalogSlug?: string
 }
 
 /**

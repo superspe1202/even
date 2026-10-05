@@ -96,7 +96,7 @@ async function verifyAndWire(url) {
   const gen = await fetch(`${url}/generate`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ query: '番茄炒蛋' }),
+    body: JSON.stringify({ query: 'tomato and egg stir-fry', lang: 'en' }),
   })
   const body = await gen.json().catch(() => ({}))
   if (!gen.ok || !Array.isArray(body.options)) {

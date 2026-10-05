@@ -19,8 +19,8 @@ Recipe Glass 的解析後端，跑在 Cloudflare Worker 上。
 ### `POST /extract`
 
 ```jsonc
-// 請求
-{ "url": "https://example.com/recipe" }
+// 請求（lang 可省略，見下方「語言」）
+{ "url": "https://example.com/recipe", "lang": "ja" }
 
 // 回應（200）
 {
@@ -32,10 +32,14 @@ Recipe Glass 的解析後端，跑在 Cloudflare Worker 上。
 }
 
 // 失敗（4xx / 502）
-{ "error": "這個網頁打不開，可能要登入才看得到，或已經失效。" }
+{ "error": "This page cannot be opened. It may need a login, or it may be gone.", "code": "page_unreachable" }
 ```
 
-影片連結（YouTube、TikTok、Bilibili、Vimeo、IG／FB 短影音）會直接回「目前不接受影片分析，請貼上食譜的網頁。」
+App 依 `code` 對到使用者語言的句子；`error` 只是後備（沒帶 `lang` 的舊版 App 拿到繁體中文，其餘語言拿到英文）。
+代碼有：`video_unsupported`、`invalid_url`、`invalid_scheme`、`page_unreachable`、`not_html`、`page_empty`、
+`not_recipe`、`not_food`、`query_empty`、`query_too_long`、`bad_request`、`unauthorized`、`not_found`、`generic`。
+
+影片連結（YouTube、TikTok、Bilibili、Vimeo、IG／FB 短影音）會直接回 `video_unsupported`（目前不接受影片分析，請貼上食譜的網頁）。
 讀影片內容只能抓頁面與字幕檔，不是官方 API，有違反平台條款的疑慮，所以目前只接受食譜網頁。
 
 前端會再做一次欄位正規化（`src/core/importer.ts`），所以模型少給欄位或型別不對不會讓 App 崩潰。
@@ -47,7 +51,7 @@ Recipe Glass 的解析後端，跑在 Cloudflare Worker 上。
 
 ```jsonc
 // 請求
-{ "query": "紅燒肉" }
+{ "query": "紅燒肉", "lang": "zh" }
 
 // 回應（200）：每個 recipe 跟 /extract 的回應同一種格式
 {
@@ -59,13 +63,25 @@ Recipe Glass 的解析後端，跑在 Cloudflare Worker 上。
 }
 
 // 失敗（4xx / 502）
-{ "error": "這看起來不是料理名稱" }
+{ "error": "This does not look like the name of a dish.", "code": "not_food" }
 ```
 
 `query` 上限 60 字元。這個端點**不會**真的去查網路上最新的做法，也不是 Google 搜尋結果最上面那個
 AI Overview——那是 Google 網頁自己的介面，沒有公開 API，爬蟲抓會違反服務條款而且畫面隨時會改版。
 這裡給的是語言模型自己知道的「常見標準做法」，品質取決於模型本身的知識，回傳的內容一樣要先進
 App 的編輯畫面讓使用者確認過才會存檔。
+
+### 語言（`lang`）
+
+`/extract` 與 `/generate` 都接受 `lang`：`zh`、`en`、`de`、`fr`、`es`、`it`、`ja`、`ko`。
+食譜名稱、食材、步驟、小提醒都會用該語言輸出（`zh` 是繁體中文、台灣用語）。
+
+- 沒帶 `lang`：視為舊版 App，一律用繁體中文，行為與 0.1 相同。
+- 帶了但不認得的語言：退回英文。
+- 提示詞本身用英文寫（模型最穩），再明講輸出語言。字數上限依文字種類調整：
+  中日韓一個字佔一格，名稱 10／步驟 60 字；其他語言放寬到 28／130 字元。
+  眼鏡畫面放不下的長文字 App 端會自動換頁，所以這只是讓版面好看，不是安全邊界。
+- 韓文：眼鏡字型只有部分韓文音節，提示詞會要求模型用常見字；罕用字在眼鏡上可能顯示不出來（手機畫面不受影響）。
 
 ### `GET /health`
 

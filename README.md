@@ -27,6 +27,8 @@ Even（Even Realities）數位眼鏡（智慧眼鏡）相關資料與筆記。
 | --- | --- |
 | [docs/even-g2-官方資源.md](docs/even-g2-官方資源.md) | Even Realities G2 官方 GitHub、SDK、硬體規格、開發流程與上架規則彙整 |
 | [docs/食譜App-企劃.md](docs/食譜App-企劃.md) | Recipe Glass 的產品企劃、系統架構、畫面設計與上架準備 |
+| [docs/多語言.md](docs/多語言.md) | 8 種語言的設計、語言偵測規則、如何加菜／加語言、品質檢查與已知限制 |
+| [docs/上架文案.md](docs/上架文案.md) | Even Hub 上架用的簡介、說明與標籤（8 種語言） |
 | [recipe-app/README.md](recipe-app/README.md) | App 的開發、打包與架構說明 |
 | [worker/README.md](worker/README.md) | 解析後端的設定、部署與已知限制 |
 

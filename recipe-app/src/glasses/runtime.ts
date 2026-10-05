@@ -12,14 +12,15 @@ import {
   type RunningTimer,
 } from '../core/timer'
 import type { Recipe } from '../core/types'
+import { t } from '../i18n'
 import {
-  ALARM_FOOTER,
+  alarmFooter,
   alarmBody,
   BODY,
   BRIGHTNESS,
   FOOTER,
   HEADER,
-  IDLE_BODY,
+  idleBody,
   RAIL,
   buildShoppingViews,
   buildViews,
@@ -108,6 +109,8 @@ export class GlassesRuntime {
   private recipe: Recipe | null = null
   /** 標頭左半的文字：烹飪時是食譜名，採購清單時是「採購清單」。 */
   private title = 'Recipe Glass'
+  /** 正在顯示的採購清單（換語言時要照新語言重排）。顯示食譜或待命時是 null。 */
+  private shoppingLines: string[] | null = null
   private views: View[] = []
   private index = 0
   /** 所有正在倒數的計時器，跨步驟、跨食譜，跟目前顯示哪個畫面無關。 */
@@ -203,7 +206,7 @@ export class GlassesRuntime {
         textObject: [
           mk(HEADER, this.lastHeader, 0, BRIGHTNESS.header),
           // 所有容器裡必須剛好有一個設 isEventCapture: 1。
-          mk(BODY, IDLE_BODY, 1, BRIGHTNESS.bright),
+          mk(BODY, idleBody(), 1, BRIGHTNESS.bright),
           mk(FOOTER, this.lastFooter, 0, BRIGHTNESS.dim),
           ...rail,
         ],
@@ -221,6 +224,7 @@ export class GlassesRuntime {
   /** 載入食譜並跳到指定畫面（例如還原上次進度、或切換到另一道食譜）。 */
   async load(recipe: Recipe, viewIndex = 0): Promise<void> {
     this.recipe = recipe
+    this.shoppingLines = null
     this.title = recipe.name
     this.views = buildViews(recipe)
     this.index = Math.min(Math.max(0, viewIndex), this.views.length - 1)
@@ -234,9 +238,40 @@ export class GlassesRuntime {
    */
   async loadShoppingList(lines: string[]): Promise<void> {
     this.recipe = null
-    this.title = '採購清單'
+    this.shoppingLines = lines
+    this.title = t('g.shoppingTitle')
     this.views = buildShoppingViews(lines)
     this.index = 0
+    await this.render()
+  }
+
+  /**
+   * 語言變了：照新語言重排眼鏡上所有的字，並停在同一個步驟。
+   *
+   * 食譜本身的文字是使用者存下來的那一份，不會變；變的是「食材」「步驟 3/6」
+   * 這類標籤、頁尾提示、待命與完成畫面。
+   */
+  async relocalize(): Promise<void> {
+    if (this.recipe) {
+      const cur = this.view
+      this.views = buildViews(this.recipe)
+      const same = cur
+        ? this.views.findIndex(
+            v =>
+              v.kind === cur.kind &&
+              (v.kind !== 'step' || (cur.kind === 'step' && v.stepIndex === cur.stepIndex)),
+          )
+        : -1
+      this.index = same >= 0 ? same : Math.min(this.index, this.views.length - 1)
+    } else if (this.shoppingLines) {
+      this.title = t('g.shoppingTitle')
+      this.views = buildShoppingViews(this.shoppingLines)
+      this.index = Math.min(this.index, this.views.length - 1)
+    }
+    // 各容器的「上次寫入」快取清掉，確保每一格都照新語言重寫一次。
+    this.lastHeader = ''
+    this.lastFooter = ''
+    this.lastRail = this.lastRail.map(() => ({ content: '\0', brightness: -1 }))
     await this.render()
   }
 
@@ -322,6 +357,7 @@ export class GlassesRuntime {
   /** 眼鏡回到待命畫面（例如手機上結束了正在顯示的那道菜，又沒有別道在煮）。 */
   async unload(): Promise<void> {
     this.recipe = null
+    this.shoppingLines = null
     this.title = 'Recipe Glass'
     this.views = []
     this.index = 0
@@ -501,7 +537,7 @@ export class GlassesRuntime {
 
   private bodyText(): string {
     const view = this.view
-    if (!view) return IDLE_BODY
+    if (!view) return idleBody()
     if (view.kind === 'done') return doneBody(this.title, this.canSwitch)
     return view.body
   }
@@ -583,8 +619,8 @@ export class GlassesRuntime {
     if (!alarm) return
     const where =
       alarm.recipeId === this.recipe?.id
-        ? `步驟 ${alarm.stepIndex + 1}`
-        : `${alarm.recipeName} · 步驟 ${alarm.stepIndex + 1}`
+        ? t('g.alarmWhereStep', { n: alarm.stepIndex + 1 })
+        : t('g.alarmWhereDish', { name: alarm.recipeName, n: alarm.stepIndex + 1 })
     const body = alarmBody(where, alarm.stepText)
 
     this.alarmUntil = Date.now() + ALARM_DURATION_MS
@@ -649,7 +685,7 @@ export class GlassesRuntime {
   }
 
   private footer(): string {
-    if (this.alarms.length) return ALARM_FOOTER
+    if (this.alarms.length) return alarmFooter()
     return footerText({
       view: this.view,
       timer: this.footerTimer(),

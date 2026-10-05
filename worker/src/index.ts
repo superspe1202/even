@@ -1,4 +1,12 @@
-import { GENERIC_FAILURE, UserFacingError } from './errors'
+import {
+  LANG_PROMPT_NAMES,
+  UserFacingError,
+  isCjk,
+  messageFor,
+  parseLang,
+  type ErrorCode,
+  type Lang,
+} from './errors'
 import { extractTitle, htmlToText } from './readable'
 
 export interface Env {
@@ -36,10 +44,10 @@ export default {
       return json({ ok: true }, 200, origin)
     }
     if (request.method !== 'POST' || (url.pathname !== '/extract' && url.pathname !== '/generate')) {
-      return json({ error: '不支援的路徑或方法' }, 404, origin)
+      return failure('not_found', 404, origin, 'en')
     }
     if (env.APP_TOKEN && request.headers.get('x-app-token') !== env.APP_TOKEN) {
-      return json({ error: '未授權' }, 401, origin)
+      return failure('unauthorized', 401, origin, 'en')
     }
 
     if (url.pathname === '/generate') return handleGenerate(request, env, origin)
@@ -48,24 +56,25 @@ export default {
 }
 
 async function handleExtract(request: Request, env: Env, origin: string): Promise<Response> {
-  let body: { url?: unknown }
+  let body: { url?: unknown; lang?: unknown }
   try {
     body = await request.json()
   } catch {
-    return json({ error: '請求格式不對。' }, 400, origin)
+    return failure('bad_request', 400, origin, 'en')
   }
+  const lang = parseLang(body.lang)
 
   const target = typeof body.url === 'string' ? body.url.trim() : ''
   const problem = validateTarget(target)
-  if (problem) return json({ error: problem }, 400, origin)
+  if (problem) return failure(problem, 400, origin, lang)
 
   try {
-    const source = await loadSource(target)
-    const recipe = await extractRecipe(source, env)
+    const source = await loadSource(target, lang)
+    const recipe = await extractRecipe(source, env, lang)
     return json(recipe, 200, origin)
   } catch (err) {
     console.error('extract 失敗：', err)
-    return json({ error: userMessage(err) }, 502, origin)
+    return failure(errorCode(err), 502, origin, lang)
   }
 }
 
@@ -81,29 +90,35 @@ const MAX_QUERY_LENGTH = 60
  * 「AI 產生 JSON → 前端 normalizeRecipe 收斂 → 進編輯器讓使用者過目」流程。
  */
 async function handleGenerate(request: Request, env: Env, origin: string): Promise<Response> {
-  let body: { query?: unknown }
+  let body: { query?: unknown; lang?: unknown }
   try {
     body = await request.json()
   } catch {
-    return json({ error: '請求格式不對。' }, 400, origin)
+    return failure('bad_request', 400, origin, 'en')
   }
+  const lang = parseLang(body.lang)
 
   const query = typeof body.query === 'string' ? body.query.trim() : ''
-  if (!query) return json({ error: '請先輸入菜名。' }, 400, origin)
-  if (query.length > MAX_QUERY_LENGTH) return json({ error: '菜名太長了，簡短一點就好。' }, 400, origin)
+  if (!query) return failure('query_empty', 400, origin, lang)
+  if (query.length > MAX_QUERY_LENGTH) return failure('query_too_long', 400, origin, lang)
 
   try {
-    const result = await generateRecipes(query, env)
+    const result = await generateRecipes(query, env, lang)
     return json(result, 200, origin)
   } catch (err) {
     console.error('generate 失敗：', err)
-    return json({ error: userMessage(err) }, 502, origin)
+    return failure(errorCode(err), 502, origin, lang)
   }
 }
 
-/** 只有明確標成可給使用者看的訊息才原樣回傳，其餘一律換成通用的白話。 */
-function userMessage(err: unknown): string {
-  return err instanceof UserFacingError ? err.message : GENERIC_FAILURE
+/** 只有明確標成可給使用者看的錯誤才回具體代碼，其餘一律換成通用的 `generic`。 */
+function errorCode(err: unknown): ErrorCode {
+  return err instanceof UserFacingError ? err.code : 'generic'
+}
+
+/** `{ error, code }`：App 看 `code` 翻成使用者語言；`error` 只是後備。 */
+function failure(code: ErrorCode, status: number, origin: string, lang: Lang): Response {
+  return json({ error: messageFor(code, lang), code }, status, origin)
 }
 
 /**
@@ -113,16 +128,16 @@ function userMessage(err: unknown): string {
  * 雖然 Cloudflare Worker 本身碰不到你家的內網，但擋住這些位址能避免它
  * 被拿去探測其他服務，也讓錯誤訊息更明確。
  */
-function validateTarget(target: string): string | null {
-  if (!target) return '沒有收到網址。'
+function validateTarget(target: string): ErrorCode | null {
+  if (!target) return 'invalid_url'
   let parsed: URL
   try {
     parsed = new URL(target)
   } catch {
-    return '網址看起來不完整，請確認有整段複製。'
+    return 'invalid_url'
   }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    return '請貼上網頁連結（http 或 https 開頭）。'
+    return 'invalid_scheme'
   }
   const host = parsed.hostname.toLowerCase()
   const blocked =
@@ -137,7 +152,7 @@ function validateTarget(target: string): string | null {
     /^192\.168\./.test(host) ||
     /^169\.254\./.test(host) ||
     /^172\.(1[6-9]|2\d|3[01])\./.test(host)
-  if (blocked) return '這個網址沒辦法讀取。'
+  if (blocked) return 'page_unreachable'
   return null
 }
 
@@ -166,35 +181,32 @@ function isVideoLink(url: string): boolean {
   }
 }
 
-const VIDEO_NOT_SUPPORTED = '目前不接受影片分析，請貼上食譜的網頁。'
-
-
-async function loadSource(target: string): Promise<SourceContent> {
-  if (isVideoLink(target)) throw new UserFacingError(VIDEO_NOT_SUPPORTED)
+async function loadSource(target: string, lang: Lang): Promise<SourceContent> {
+  if (isVideoLink(target)) throw new UserFacingError('video_unsupported')
 
   const response = await fetch(target, {
     headers: {
       'user-agent':
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
       accept: 'text/html,application/xhtml+xml',
-      'accept-language': 'zh-TW,zh;q=0.9,en;q=0.8',
+      'accept-language': `${lang === 'zh' ? 'zh-TW' : lang},${lang === 'zh' ? 'zh' : lang};q=0.9,en;q=0.8`,
     },
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   })
   if (!response.ok) {
     console.error('網頁讀取失敗：', response.status)
-    throw new UserFacingError('這個網頁打不開，可能要登入才看得到，或已經失效。')
+    throw new UserFacingError('page_unreachable')
   }
 
   const contentType = response.headers.get('content-type') ?? ''
   if (contentType && !contentType.includes('html') && !contentType.includes('text')) {
-    throw new UserFacingError('這個連結不是網頁，沒辦法讀取。')
+    throw new UserFacingError('not_html')
   }
 
   const html = await readCapped(response)
   const text = htmlToText(html)
   if (text.length < 100) {
-    throw new UserFacingError('這個網頁幾乎沒有文字，可能要登入才看得到。')
+    throw new UserFacingError('page_empty')
   }
   return { title: extractTitle(html), text }
 }
@@ -221,64 +233,97 @@ async function readCapped(response: Response): Promise<string> {
   return chunks.join('')
 }
 
-const SYSTEM_PROMPT = `你是一位把料理內容整理成穿戴裝置食譜的編輯。
+/**
+ * 依語言調整的長度上限。眼鏡內文欄約 392 px 寬：中日韓一個字佔一格，
+ * 拉丁字母約半格，所以非 CJK 語言的字數上限放寬一倍左右。
+ */
+function limits(lang: Lang) {
+  return isCjk(lang)
+    ? { name: 10, label: 6, summary: 25, step: 60 }
+    : { name: 28, label: 16, summary: 70, step: 130 }
+}
 
-使用者會給你一篇網頁文字。請抽取出食譜，並以繁體中文（台灣用語）輸出。
+/** 提示詞一律用英文寫（模型最穩），再明講輸出語言；輸出裡的欄位名稱維持英文不翻。 */
+function languageRule(lang: Lang): string {
+  const name = LANG_PROMPT_NAMES[lang]
+  const extra =
+    lang === 'zh'
+      ? ' Use Taiwanese wording and Traditional Chinese characters only (never Simplified).'
+      : lang === 'ko'
+        ? ' Prefer common everyday words, because the display font has a limited set of Hangul syllables.'
+        : ''
+  return `Write every text value (name, label, summary, ingredient names and amounts, steps, tips) in ${name}.${extra} Keep the JSON keys in English exactly as specified. Use metric units (grams, millilitres) unless the source clearly uses others.`
+}
 
-規則：
-- 只輸出 JSON，不要加上任何說明文字或 markdown 標記。
-- name：食譜名稱，10 個字以內。
-- servings：份量人數，整數。
-- totalMinutes：總時間（分鐘），整數。
-- ingredients：食材陣列，每項 { "item": "名稱", "amount": "份量" }。沒寫份量就給空字串。
-- steps：步驟陣列，每項 { "text": "做什麼", "timerSeconds": 秒數, "tip": "提醒" }。
-  - text 每步 60 字以內，寫成動作指令，不要編號。這會顯示在眼鏡上，太長會讀不完。
-  - timerSeconds 只在原文明確提到等待或烹煮時間時才填（例如「煎五分鐘」填 300）。沒有就省略這個欄位。
-  - tip 只在有重要提醒時才填，沒有就省略。
-- 如果內容根本不是食譜，回傳 { "error": "這不是食譜內容" }。
+function extractPrompt(lang: Lang): string {
+  const l = limits(lang)
+  return `You are an editor who turns cooking content into recipes for a smart-glasses app.
 
-輸出格式：
+The user gives you the text of a web page. Extract the recipe from it.
+
+${languageRule(lang)}
+
+Rules:
+- Output JSON only. No explanations and no markdown.
+- name: the recipe name, at most ${l.name} characters.
+- servings: number of servings, an integer.
+- totalMinutes: total time in minutes, an integer.
+- ingredients: an array of { "item": "name", "amount": "quantity" }. Use an empty string when no quantity is given.
+- steps: an array of { "text": "what to do", "timerSeconds": seconds, "tip": "reminder" }.
+  - text: at most ${l.step} characters per step, written as an instruction, without numbering. It is shown on the glasses, so long text cannot be read.
+  - timerSeconds: only when the source clearly mentions a waiting or cooking time (for example "fry for five minutes" gives 300). Omit the field otherwise.
+  - tip: only for an important reminder. Omit it otherwise.
+- If the content is not a recipe at all, return { "error": "not_recipe" }. Return the literal code, not a sentence.
+
+Output format:
 {"name":"","servings":2,"totalMinutes":30,"ingredients":[],"steps":[]}`
+}
 
-async function extractRecipe(source: SourceContent, env: Env): Promise<unknown> {
-  const userContent = `標題：${source.title || '（無）'}\n\n以下是網頁內容：\n\n${source.text}`
-  return runRecipePrompt(SYSTEM_PROMPT, userContent, env)
+async function extractRecipe(source: SourceContent, env: Env, lang: Lang): Promise<unknown> {
+  const userContent = `Title: ${source.title || '(none)'}\n\nWeb page content:\n\n${source.text}`
+  return runRecipePrompt(extractPrompt(lang), userContent, env)
 }
 
 /** 一次給幾種做法讓使用者挑。三種剛好一個畫面看得完，也不會讓回應慢太多。 */
 const OPTION_COUNT = 3
 
-const GENERATE_SYSTEM_PROMPT = `你是一位熟悉家常料理的廚師，正在幫穿戴裝置的食譜 App 生成食譜。
+function generatePrompt(lang: Lang): string {
+  const l = limits(lang)
+  return `You are a cook who knows home cooking well, generating recipes for a smart-glasses recipe app.
 
-使用者只會給你一個菜名或料理關鍵字，不會提供任何原始資料。請憑你自己的知識，
-給出這道菜 ${OPTION_COUNT} 種「一般常見、做得出來」但彼此明顯不同的做法，
-讓使用者挑一種來做，以繁體中文（台灣用語）輸出。
+The user gives you only a dish name or a cooking keyword, with no source material. Using your own knowledge,
+give ${OPTION_COUNT} commonly made, workable versions of the dish that are clearly different from each other,
+so the user can pick one to cook.
 
-做法之間要有實質差異，例如：傳統經典版、省時簡單版、不同地區或家庭的版本、
-不同主要調味或烹調方式（燉／炒／電鍋）。不要只是份量不同，也不要硬湊不存在的做法。
-如果這道菜真的只有一種合理做法，可以只給 1 到 2 種。
+${languageRule(lang)}
 
-規則：
-- 只輸出 JSON，不要加上任何說明文字或 markdown 標記。
-- options：做法陣列，每項有：
-  - label：這種做法的名稱，6 個字以內（例如「經典紅燒」「電鍋版」「快速版」）。
-  - summary：一句話說明這個做法的特色，25 字以內。
-  - recipe：完整食譜，欄位如下。
-- name：食譜名稱，10 個字以內。
-- servings：份量人數，整數。
-- totalMinutes：總時間（分鐘），整數。
-- ingredients：食材陣列，每項 { "item": "名稱", "amount": "份量" }。份量給常見的量（例如「2 大匙」），不確定就給「適量」。
-- steps：步驟陣列，每項 { "text": "做什麼", "timerSeconds": 秒數, "tip": "提醒" }。
-  - text 每步 60 字以內，寫成動作指令，不要編號。這會顯示在眼鏡上，太長會讀不完。
-  - timerSeconds 只在這步驟通常需要等待或烹煮一段時間時才填（例如「小火燉 20 分鐘」填 1200）。不確定就省略。
-  - tip 只在有值得提醒的細節時才填，沒有就省略。
-- 如果這個關鍵字看起來不是食物或料理名稱，回傳 { "error": "這看起來不是料理名稱" }。
+The versions must differ in substance, for example: the traditional classic, a quick and simple version,
+a regional or family variation, or a different main seasoning or cooking method (braised, stir-fried, rice cooker).
+Do not just change the quantities, and do not invent versions that do not exist.
+If the dish really has only one sensible way of making it, give only 1 or 2 versions.
 
-輸出格式：
+Rules:
+- Output JSON only. No explanations and no markdown.
+- options: an array of versions, each with:
+  - label: the name of this version, at most ${l.label} characters (for example "Classic", "Quick").
+  - summary: one sentence about what makes this version special, at most ${l.summary} characters.
+  - recipe: the full recipe, with the fields below.
+- name: the recipe name, at most ${l.name} characters.
+- servings: number of servings, an integer.
+- totalMinutes: total time in minutes, an integer.
+- ingredients: an array of { "item": "name", "amount": "quantity" }. Give a common quantity (for example "2 tbsp"), or "to taste" when unsure.
+- steps: an array of { "text": "what to do", "timerSeconds": seconds, "tip": "reminder" }.
+  - text: at most ${l.step} characters per step, written as an instruction, without numbering. It is shown on the glasses, so long text cannot be read.
+  - timerSeconds: only when the step usually needs a wait or a cooking time (for example "simmer 20 minutes" gives 1200). Omit it when unsure.
+  - tip: only for a detail worth reminding. Omit it otherwise.
+- If the keyword does not look like food or a dish name, return { "error": "not_food" }. Return the literal code, not a sentence.
+
+Output format:
 {"options":[{"label":"","summary":"","recipe":{"name":"","servings":2,"totalMinutes":30,"ingredients":[],"steps":[]}}]}`
+}
 
-async function generateRecipes(query: string, env: Env): Promise<unknown> {
-  const payload = await runRecipePrompt(GENERATE_SYSTEM_PROMPT, `料理關鍵字：${query}`, env)
+async function generateRecipes(query: string, env: Env, lang: Lang): Promise<unknown> {
+  const payload = await runRecipePrompt(generatePrompt(lang), `Dish keyword: ${query}`, env)
   const options = (payload as { options?: unknown } | null)?.options
   if (!Array.isArray(options) || !options.length) throw new Error('AI 沒有回傳任何做法')
   // 模型偶爾會多給；超過就截掉，手機畫面是照三種設計的。
@@ -306,8 +351,10 @@ async function runRecipePrompt(
         })()
 
   if (recipe && typeof recipe === 'object' && 'error' in recipe) {
-    // 這是 system prompt 要求 AI 在「不是食譜／不是料理名稱」時回的句子，本來就寫給人看。
-    throw new UserFacingError(String((recipe as { error: unknown }).error))
+    // prompt 要求 AI 在「不是食譜／不是料理名稱」時回固定代碼；
+    // 認不得的內容（模型自己發揮了一句話）一律當通用錯誤，不把任意文字傳給使用者。
+    const code = String((recipe as { error: unknown }).error)
+    throw new UserFacingError(code === 'not_food' ? 'not_food' : code === 'not_recipe' ? 'not_recipe' : 'generic')
   }
   return recipe
 }
