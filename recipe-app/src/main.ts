@@ -2,7 +2,7 @@ import { waitForEvenAppBridge } from '@evenrealities/even_hub_sdk'
 import { onBackgroundRestore, setBackgroundState } from './core/background'
 import { RecipeStore } from './core/storage'
 import type { RunningTimer } from './core/timer'
-import type { Recipe } from './core/types'
+import { difficultyLabel, type Recipe } from './core/types'
 import { GlassesRuntime } from './glasses/runtime'
 import {
   detectLang,
@@ -13,7 +13,7 @@ import {
   t,
   type LangSetting,
 } from './i18n'
-import { buildViews, currentStepOf } from './glasses/views'
+import { buildViews, currentStepOf, type MenuItem } from './glasses/views'
 import { PhoneUi, type ActiveDish } from './phone/ui'
 
 const BG_KEY = 'recipeGlass'
@@ -47,11 +47,6 @@ let cookingId: string | null = null
  * 切去哪，也讓手機畫面寫得出「換到 薑母鴨 · 步驟 5」。
  */
 let active = new Map<string, ActiveDish>()
-
-/** 每次 `active` 或 `cookingId` 變動都呼叫，讓頁尾的長按提示跟著更新。 */
-function updateSwitchable() {
-  runtime?.setSwitchable([...active.keys()].some(id => id !== cookingId))
-}
 
 /** 進度存的是眼鏡畫面索引；手機要顯示的是第幾步。 */
 function dishAt(recipe: Recipe, viewIndex: number): ActiveDish {
@@ -94,12 +89,17 @@ async function boot() {
         // 每翻一頁就落盤，中途離開 App 或切去煮另一道也能從同一步接續。
         void store.setProgress({ recipeId, stepIndex: viewIndex })
       }
-      updateSwitchable()
     },
     onExit: () => {
       cookingId = null
     },
-    onSwitchRecipe: () => void switchToOther(store),
+    menuItems: () => buildMenuItems(store),
+    onPickMenuItem: item => pickMenuItem(store, item),
+    // 完成頁長按：這道菜已關閉（進度在走到完成頁時就清掉了），不再算「正在煮」。
+    onDishClosed: id => {
+      active.delete(id)
+      if (cookingId === id) cookingId = null
+    },
     onTimersChange: timers => void store.saveTimers(timers),
     // 眼鏡上的任何變化（翻頁、換菜、計時、響鈴）都讓手機畫面跟著更新。
     onStateChange: () => ui?.syncFromGlasses(),
@@ -121,7 +121,6 @@ async function boot() {
       // 也走這裡，所以切過去一定回到那道菜上次的那一步。
       const existing = await store.getProgress(recipe.id)
       cookingId = recipe.id
-      updateSwitchable()
       await runtime!.load(recipe, existing?.stepIndex ?? 0)
     },
     onJumpToStep: async (recipe: Recipe, stepIndex: number) => {
@@ -131,7 +130,6 @@ async function boot() {
       }
       // 點的是另一道菜的步驟：眼鏡直接換過去，而且就停在那一步。
       cookingId = recipe.id
-      updateSwitchable()
       await runtime!.load(recipe, GlassesRuntime.viewIndexOfStep(recipe, stepIndex))
     },
     onStartTimer: (recipe: Recipe, stepIndex: number) =>
@@ -166,7 +164,6 @@ async function boot() {
       active = new Map()
       const showingRecipe = runtime!.loadedRecipeId !== null
       cookingId = null
-      updateSwitchable()
       if (showingRecipe) await runtime!.unload()
     },
     onStopCooking: async (recipeId: string) => {
@@ -181,19 +178,16 @@ async function boot() {
         const recipe = next ? await store.get(next.recipeId) : null
         if (recipe && next) {
           cookingId = recipe.id
-          updateSwitchable()
           await runtime!.load(recipe, next.stepIndex)
           return
         }
         await runtime!.unload()
       }
-      updateSwitchable()
     },
     glassesState: () => runtime!.state,
     onShowShopping: async (lines: string[]) => {
       // 採購清單接管眼鏡畫面，烹飪中的標記要收掉（但進度都還在，之後能接回來）。
       cookingId = null
-      updateSwitchable()
       await runtime!.loadShoppingList(lines)
     },
     cookingRecipeId: () => cookingId,
@@ -201,7 +195,6 @@ async function boot() {
     onRecipeDeleted: id => {
       active.delete(id)
       runtime?.cancelTimersFor(id)
-      updateSwitchable()
     },
   })
   await ui.start()
@@ -216,31 +209,55 @@ async function boot() {
 }
 
 /**
- * 長按觸發：切到「等最久」的另一道進行中食譜，接續它的步驟。
- * 計時器本來就不綁畫面，切過去不用做任何處理。
- * 只有一道在煮（或都煮完了）就什麼都不做，不會誤觸跳走。
+ * 眼鏡主選單的項目，順序跟手機的食譜庫一致：眼鏡上正顯示的、其他煮到一半的、
+ * 加星號的、其餘；最後是採購清單。不用拿手機，單靠眼鏡就能選菜、換菜。
  */
-async function switchToOther(store: RecipeStore): Promise<void> {
-  const others = (await store.listProgress())
-    .filter(p => p.recipeId !== cookingId)
-    .sort((a, b) => a.updatedAt - b.updatedAt)
-  if (!others.length) return
+async function buildMenuItems(store: RecipeStore): Promise<MenuItem[]> {
+  const [index, favorites, list] = await Promise.all([
+    store.listIndex(),
+    store.getFavorites(),
+    store.getShoppingList(),
+  ])
+  const loaded = runtime?.loadedRecipeId ?? null
+  const fav = new Set(favorites)
+  const rank = (id: string) => (id === loaded ? 0 : active.has(id) ? 1 : fav.has(id) ? 2 : 3)
+  const items: MenuItem[] = [...index]
+    .sort((a, b) => rank(a.id) - rank(b.id))
+    .map(e => {
+      const dish = active.get(e.id)
+      const started = dish && dish.step >= 0 && dish.step < dish.stepTotal
+      return {
+        kind: 'dish' as const,
+        id: e.id,
+        name: e.name,
+        meta: t('u.rowMeta', { n: e.stepCount, min: e.totalMinutes, diff: difficultyLabel(e.difficulty) }),
+        // 還在食材頁（step -1）也算煮到一半：選單裡要能「繼續」而不是「重來」。
+        progress: dish ? { step: started ? dish.step + 1 : 0, total: dish.stepTotal } : null,
+      }
+    })
+  const pending = list.pending.length
+  items.push({
+    kind: 'shopping',
+    id: 'shopping',
+    name: t('g.shoppingTitle'),
+    meta: t('g.menuShopping', { n: pending }),
+    progress: null,
+  })
+  return items
+}
 
-  const next = others[0]
-  const recipe = await store.get(next.recipeId)
-  if (!recipe) {
-    // 食譜被刪掉了，這筆進度也沒有意義。
-    await store.clearProgress(next.recipeId)
-    active.delete(next.recipeId)
-    updateSwitchable()
+async function pickMenuItem(store: RecipeStore, item: MenuItem): Promise<void> {
+  if (item.kind === 'shopping') {
+    cookingId = null
+    await runtime!.loadShoppingList((await store.getShoppingList()).toGlassesLines())
     return
   }
-  // 從煮完的那道（已經不在「進行中」）長按換走：它就算關掉了，
-  // 還沒響的計時也一起拿掉，不會在煮下一道時突然冒出來。
-  if (cookingId && !active.has(cookingId)) runtime!.cancelTimersFor(cookingId)
+  const recipe = await store.get(item.id)
+  if (!recipe) return
+  // 煮到一半的菜接續上次那一步，沒煮過的從頭開始。
+  const existing = await store.getProgress(recipe.id)
   cookingId = recipe.id
-  updateSwitchable()
-  await runtime!.load(recipe, next.stepIndex)
+  await runtime!.load(recipe, existing?.stepIndex ?? 0)
 }
 
 /** 續看：優先用背景快照，其次用所有進度裡最近更新的一筆。 */
@@ -260,7 +277,6 @@ async function resume(store: RecipeStore) {
       ? all.reduce((a, b) => (a.updatedAt >= b.updatedAt ? a : b))
       : null
   if (!progress) {
-    updateSwitchable()
     return
   }
 
@@ -269,11 +285,9 @@ async function resume(store: RecipeStore) {
     // 食譜被刪掉了，進度就沒有意義。
     await store.clearProgress(progress.recipeId)
     active.delete(progress.recipeId)
-    updateSwitchable()
     return
   }
   cookingId = recipe.id
-  updateSwitchable()
   await runtime!.load(recipe, progress.stepIndex)
 }
 

@@ -28,9 +28,14 @@ import {
   doneBody,
   footerText,
   headerText,
+  menuBody,
+  menuHeaderText,
+  menuRail,
   railSlots,
   timerLabel,
   type FooterTimer,
+  type MenuItem,
+  type MenuTimer,
   type RailSlot,
   type View,
 } from './views'
@@ -70,8 +75,12 @@ export interface RuntimeCallbacks {
   /** 位置變動時通知外層做進度保存。`finished` 代表走到了「完成」頁。 */
   onPositionChange?: (recipeId: string, viewIndex: number, finished: boolean) => void
   onExit?: () => void
-  /** 長按：使用者想切換到另一道也在煮的食譜，不影響目前這份的進度。 */
-  onSwitchRecipe?: () => void
+  /** 長按開主選單時，向外層要「可以選的項目」：煮到一半的菜、食譜庫、採購清單。 */
+  menuItems?: () => Promise<MenuItem[]>
+  /** 在主選單點了一項（目前顯示中的那道不會走到這裡，直接回到它）。 */
+  onPickMenuItem?: (item: MenuItem) => void | Promise<void>
+  /** 完成頁長按：這道菜已關閉（進度、計時都清掉了），外層同步自己的狀態。 */
+  onDishClosed?: (recipeId: string) => void
   /** 計時器開始或到期時通知外層落盤，App 重開也接得回來。 */
   onTimersChange?: (timers: RunningTimer[]) => void
   /**
@@ -86,6 +95,8 @@ export interface RuntimeCallbacks {
 
 /** 手機端要同步顯示的眼鏡狀態。 */
 export interface GlassesState {
+  /** 眼鏡正在顯示主選單（底下的 mode 是選單蓋住之前的畫面）。 */
+  menu: boolean
   mode: 'idle' | 'recipe' | 'shopping'
   recipeId: string | null
   /** 標頭左半：食譜名、「採購清單」或 App 名稱。 */
@@ -145,8 +156,12 @@ export class GlassesRuntime {
   private timersEnabled = true
   /** 上一次換畫面的時間，用來擋掉換頁後緊跟著來的多餘點擊。 */
   private lastNavAt = 0
-  /** 有沒有另一道也在煮的食譜可以長按切過去，決定頁尾提示要不要提「長按切換」。 */
-  private canSwitch = false
+  /**
+   * 主選單。開著的時候底下的食譜／採購清單原封不動（計時照跑、進度保留），
+   * 長按回去就還在原來那一頁；選了別項才換掉它。
+   */
+  private menu: { items: MenuItem[]; selected: number } | null = null
+  private lastMenuBody = ''
 
   constructor(
     private readonly bridge: GlassesBridge,
@@ -223,6 +238,7 @@ export class GlassesRuntime {
 
   /** 載入食譜並跳到指定畫面（例如還原上次進度、或切換到另一道食譜）。 */
   async load(recipe: Recipe, viewIndex = 0): Promise<void> {
+    this.menu = null
     this.recipe = recipe
     this.shoppingLines = null
     this.title = recipe.name
@@ -237,6 +253,7 @@ export class GlassesRuntime {
    * 計時器照樣在跑——逛完超市回來，鍋裡的東西不會因為看了清單就停火。
    */
   async loadShoppingList(lines: string[]): Promise<void> {
+    this.menu = null
     this.recipe = null
     this.shoppingLines = lines
     this.title = t('g.shoppingTitle')
@@ -267,6 +284,14 @@ export class GlassesRuntime {
       this.title = t('g.shoppingTitle')
       this.views = buildShoppingViews(this.shoppingLines)
       this.index = Math.min(this.index, this.views.length - 1)
+    }
+    if (this.menu) {
+      // 選單項目的說明文字（「6 步驟 · 15 分」）也是翻譯過的，重新向外層要一份，選中項不變。
+      const keep = this.menu.items[this.menu.selected]?.id
+      const items = (await this.callbacks.menuItems?.()) ?? []
+      const at = items.findIndex(i => i.id === keep)
+      this.menu = { items, selected: Math.max(0, at) }
+      this.lastMenuBody = ''
     }
     // 各容器的「上次寫入」快取清掉，確保每一格都照新語言重寫一次。
     this.lastHeader = ''
@@ -356,6 +381,7 @@ export class GlassesRuntime {
 
   /** 眼鏡回到待命畫面（例如手機上結束了正在顯示的那道菜，又沒有別道在煮）。 */
   async unload(): Promise<void> {
+    this.menu = null
     this.recipe = null
     this.shoppingLines = null
     this.title = 'Recipe Glass'
@@ -364,10 +390,6 @@ export class GlassesRuntime {
     await this.render()
   }
 
-  /**
-   * 外層（`main.ts`）在有進度的食譜集合改變時呼叫，更新頁尾要不要提示
-   * 「長按切換」。只在真的變了才重畫頁尾，避免每次翻頁都多寫一次。
-   */
   /** 手機設定「步驟計時」改了。關掉時，已經在跑的計時照跑，只是不再提示開始新的。 */
   setTimersEnabled(on: boolean): void {
     if (this.timersEnabled === on) return
@@ -378,16 +400,6 @@ export class GlassesRuntime {
 
   get timersOn(): boolean {
     return this.timersEnabled
-  }
-
-  setSwitchable(canSwitch: boolean): void {
-    if (this.canSwitch === canSwitch) return
-    this.canSwitch = canSwitch
-    // 完成頁的內文會寫「長按換到還在煮的菜」，可不可以換變了就要重寫。
-    if (this.view?.kind === 'done' && !this.alarms.length) {
-      void this.write(BODY.id, BODY.name, this.bodyText())
-    }
-    void this.renderFooter()
   }
 
   get currentIndex() {
@@ -402,6 +414,7 @@ export class GlassesRuntime {
     const view = this.view
     const stepTotal = this.recipe?.steps.length ?? 0
     return {
+      menu: this.menu !== null,
       mode: this.recipe ? 'recipe' : this.views.length ? 'shopping' : 'idle',
       recipeId: this.recipe?.id ?? null,
       title: this.title,
@@ -474,22 +487,35 @@ export class GlassesRuntime {
         return
       }
 
+      // 主選單開著：上下滑選擇、點擊打開、長按返回。
+      if (this.menu) {
+        if (is(OsEventTypeList.SCROLL_TOP_EVENT)) void this.moveMenu(-1)
+        else if (is(OsEventTypeList.SCROLL_BOTTOM_EVENT)) void this.moveMenu(1)
+        else if (is(OsEventTypeList.LONG_PRESS_EVENT)) void this.closeMenu()
+        else if (is(OsEventTypeList.CLICK_EVENT)) {
+          if (Date.now() - this.lastNavAt < CLICK_GUARD_MS) return
+          void this.pickMenuItem()
+        }
+        return
+      }
+
       if (is(OsEventTypeList.SCROLL_TOP_EVENT)) {
         void this.go(-1)
         return
       }
-      // 下滑永遠是下一頁——有計時的步驟不想計時，就用下滑跳過。
+      // 下滑永遠是下一頁（也是有計時的步驟不想計時時的「跳過」）。
       if (is(OsEventTypeList.SCROLL_BOTTOM_EVENT)) {
         void this.go(1)
         return
       }
-      // 長按：切換到另一道也在煮的食譜。跟點擊、雙擊是不同手勢，不會互相干擾。
+      // 長按：開主選單，換另一道菜或回主選單。完成頁的長按同時關掉這道菜。
       if (is(OsEventTypeList.LONG_PRESS_EVENT)) {
-        this.callbacks.onSwitchRecipe?.()
+        void this.openMenu()
         return
       }
       // CLICK_EVENT 是 0，protobuf 會省略零值，所以它是「沒有型別」的退路，
       // 一定要放在所有具名事件之後才判斷。
+      // 點擊只用來開始計時；翻頁一律用下滑，不會因為誤觸就跳頁。
       if (is(OsEventTypeList.CLICK_EVENT)) {
         // 剛換到這一頁（滑過來、手機跳過來）半秒內的「點擊」不算數：實機上滑動之後
         // 可能緊跟著一個沒有型別的事件，會被當成點擊，一到計時步驟就自己開始倒數。
@@ -497,7 +523,7 @@ export class GlassesRuntime {
         const view = this.view
         if (this.recipe && view?.kind === 'step' && this.startableSeconds() !== null) {
           this.startTimerFor(this.recipe, view.stepIndex)
-        } else void this.go(1)
+        }
         return
       }
     })
@@ -520,26 +546,100 @@ export class GlassesRuntime {
   private async render(): Promise<void> {
     this.lastNavAt = Date.now()
     const view = this.view
-    const stepTotal = this.recipe?.steps.length ?? 0
 
     await this.renderHeader()
     // 響鈴中內文歸閃爍畫面管，這裡不能蓋掉它；響完會再重畫一次。
     if (!this.alarms.length) await this.write(BODY.id, BODY.name, this.bodyText())
-    await this.renderRail(view ? currentStepOf(view, stepTotal) : -1)
+    await this.renderRail()
     await this.renderFooter()
 
-    // 採購清單沒有進度可保存。
-    if (this.recipe && view) {
+    // 採購清單、主選單都沒有進度可保存。
+    if (this.recipe && view && !this.menu) {
       this.callbacks.onPositionChange?.(this.recipe.id, this.index, view.kind === 'done')
     }
     this.notify()
   }
 
   private bodyText(): string {
+    if (this.menu) {
+      const text = this.menuBodyText()
+      this.lastMenuBody = text
+      return text
+    }
     const view = this.view
     if (!view) return idleBody()
-    if (view.kind === 'done') return doneBody(this.title, this.canSwitch)
+    if (view.kind === 'done') return doneBody(this.title)
     return view.body
+  }
+
+  // ---- 主選單 ----
+
+  private menuTimers(item: MenuItem): MenuTimer[] {
+    if (item.kind !== 'dish') return []
+    return bySoonest(this.timers.filter(tm => tm.recipeId === item.id)).map(tm => ({
+      stepIndex: tm.stepIndex,
+      remaining: remainingSeconds(tm, Date.now()),
+    }))
+  }
+
+  private menuBodyText(): string {
+    const m = this.menu
+    return menuBody(m ? (m.items[m.selected] ?? null) : null, m ? this.menuTimersOfSelected() : [])
+  }
+
+  private menuTimersOfSelected(): MenuTimer[] {
+    const m = this.menu
+    const item = m?.items[m.selected]
+    return item ? this.menuTimers(item) : []
+  }
+
+  /**
+   * 長按：開主選單。完成頁的長按等於「這道菜煮完了」——進度早在走到完成頁時就清掉，
+   * 這裡再把它的計時器清零並放掉這道菜，選單裡就不會再看到它、返回也回到待命畫面。
+   */
+  async openMenu(): Promise<void> {
+    if (this.menu || this.alarms.length) return
+    if (this.recipe && this.view?.kind === 'done') {
+      const id = this.recipe.id
+      this.cancelTimersFor(id)
+      this.recipe = null
+      this.views = []
+      this.index = 0
+      this.title = 'Recipe Glass'
+      this.callbacks.onDishClosed?.(id)
+    }
+    const items = (await this.callbacks.menuItems?.()) ?? []
+    // 預設選在「另一道煮到一半的菜」：長按之後馬上點擊，就是在兩道菜之間切換。
+    const loaded = this.recipe?.id
+    const other = items.findIndex(i => i.kind === 'dish' && i.progress && i.id !== loaded)
+    const current = items.findIndex(i => i.id === loaded)
+    this.menu = { items, selected: other >= 0 ? other : Math.max(0, current) }
+    this.lastMenuBody = ''
+    await this.render()
+  }
+
+  async closeMenu(): Promise<void> {
+    if (!this.menu) return
+    this.menu = null
+    await this.render()
+  }
+
+  private async moveMenu(delta: number): Promise<void> {
+    const m = this.menu
+    if (!m || !m.items.length) return
+    const next = Math.min(Math.max(m.selected + delta, 0), m.items.length - 1)
+    if (next === m.selected) return
+    m.selected = next
+    await this.render()
+  }
+
+  private async pickMenuItem(): Promise<void> {
+    const m = this.menu
+    const item = m?.items[m.selected]
+    if (!item) return
+    // 選到現在顯示著的這道：不重新載入，直接回到它停著的那一頁。
+    if (item.kind === 'dish' && item.id === this.recipe?.id) return this.closeMenu()
+    await this.callbacks.onPickMenuItem?.(item)
   }
 
   /**
@@ -598,6 +698,7 @@ export class GlassesRuntime {
     const { expired, running } = splitExpired(this.timers, Date.now())
     if (!expired.length) {
       void this.renderFooter()
+      void this.refreshMenuTimers()
       return
     }
     this.timers = running
@@ -606,6 +707,17 @@ export class GlassesRuntime {
     this.syncTicker()
     this.queueAlarms(expired)
     this.notify()
+  }
+
+  /** 主選單開著時，倒數每秒在變：只重寫真的變了的欄位（選中項詳情與右欄）。 */
+  private async refreshMenuTimers(): Promise<void> {
+    if (!this.menu || this.alarms.length) return
+    const text = this.menuBodyText()
+    if (text !== this.lastMenuBody) {
+      this.lastMenuBody = text
+      await this.write(BODY.id, BODY.name, text)
+    }
+    await this.renderRail()
   }
 
   private queueAlarms(list: RunningTimer[]) {
@@ -666,15 +778,20 @@ export class GlassesRuntime {
    */
   private async renderHeader(): Promise<void> {
     const stepTotal = this.recipe?.steps.length ?? 0
-    const text = headerText(this.title, stepTotal, this.view, new Date())
+    const text = this.menu
+      ? menuHeaderText(this.menu.selected, this.menu.items.length, new Date())
+      : headerText(this.title, stepTotal, this.view, new Date())
     if (text === this.lastHeader) return
     this.lastHeader = text
     await this.write(HEADER.id, HEADER.name, text)
   }
 
   /** 只寫內容或亮度真的變了的格子，避免每翻一頁就五次藍牙往返。 */
-  private async renderRail(currentStep: number): Promise<void> {
-    const slots = railSlots(this.recipe, currentStep)
+  private async renderRail(): Promise<void> {
+    const view = this.view
+    const slots = this.menu
+      ? menuRail(this.menu.items, this.menu.selected, item => this.menuTimers(item)[0] ?? null)
+      : railSlots(this.recipe, view ? currentStepOf(view, this.recipe?.steps.length ?? 0) : -1)
     for (let i = 0; i < slots.length; i++) {
       const next = slots[i]
       const prev = this.lastRail[i]
@@ -690,7 +807,7 @@ export class GlassesRuntime {
       view: this.view,
       timer: this.footerTimer(),
       startable: this.startableSeconds(),
-      canSwitch: this.canSwitch,
+      menu: this.menu !== null,
     })
   }
 
@@ -700,10 +817,12 @@ export class GlassesRuntime {
     const [first, ...rest] = bySoonest(this.timers)
     const view = this.view
     const currentStep = view ? currentStepOf(view, this.recipe?.steps.length ?? 0) : -1
+    const { label, short } = timerLabel(first, this.recipe?.id ?? null, currentStep)
     return {
       remaining: remainingSeconds(first, Date.now()),
       total: first.totalSeconds,
-      label: timerLabel(first, this.recipe?.id ?? null, currentStep),
+      label,
+      labelShort: short,
       others: rest.length,
     }
   }

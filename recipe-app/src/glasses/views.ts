@@ -105,8 +105,7 @@ export function buildViews(recipe: Recipe): View[] {
     )
   })
 
-  // 內容由執行時期依「還有沒有別道在煮」用 doneBody() 產生，這裡只是預設值。
-  views.push({ kind: 'done', body: doneBody(recipe.name, false) })
+  views.push({ kind: 'done', body: doneBody(recipe.name) })
 
   if (!views.length) views.push({ kind: 'empty', body: t('g.emptyRecipe') })
   return views
@@ -194,8 +193,13 @@ export function buildShoppingViews(lines: string[]): View[] {
 export interface FooterTimer {
   remaining: number
   total: number
-  /** 空字串代表就是眼前這一步的計時；否則是「步驟2」或別道菜的名字。 */
+  /**
+   * 空字串代表就是眼前這一步的計時；否則是「步驟2」，或別道菜的「菜名 步驟2」——
+   * 同時煮好幾道時，要一眼看出是哪一道、哪一步的計時。
+   */
   label: string
+  /** `label` 放不下時的短版：別道菜只留菜名，其餘與 `label` 相同。 */
+  labelShort: string
   /** 除了這個之外還有幾個在跑。 */
   others: number
 }
@@ -206,23 +210,26 @@ export interface FooterState {
   timer: FooterTimer | null
   /** 這一步有計時但還沒開始：它的秒數。有值時頁尾改教使用者怎麼開始計時。 */
   startable: number | null
-  /** 目前有沒有另一道也在煮的食譜可以長按切過去。 */
-  canSwitch: boolean
+  /** 正在主選單：頁尾改教選單的手勢。 */
+  menu?: boolean
 }
 
 /**
- * 計時器不是眼前這一步的，就標出是哪一步或哪一道菜——
- * 否則同時煮兩道菜時，看到「03:10」不會知道是誰的。
+ * 計時器不是眼前這一步的，就標出是哪一步或哪一道菜的哪一步——
+ * 否則同時煮兩道菜時，看到「03:10」不會知道是誰的、做到哪。
  */
 export function timerLabel(
   timer: { recipeId: string; recipeName: string; stepIndex: number },
   recipeId: string | null,
   currentStep: number,
-): string {
+): { label: string; short: string } {
+  const step = t('g.timerStep', { n: timer.stepIndex + 1 })
   if (timer.recipeId === recipeId) {
-    return timer.stepIndex === currentStep ? '' : t('g.timerStep', { n: timer.stepIndex + 1 })
+    const label = timer.stepIndex === currentStep ? '' : step
+    return { label, short: label }
   }
-  return clipToWidth(timer.recipeName, DISH_LABEL_PX)
+  const name = clipToWidth(timer.recipeName, DISH_LABEL_PX)
+  return { label: `${name} ${step}`, short: name }
 }
 
 /** 別道菜的名字放進頁尾最多佔這麼寬（約四個中文字、八九個英文字母）。 */
@@ -254,31 +261,25 @@ function progressBar(remaining: number, total: number, width: number): string {
 
 /** 計時響起時的頁尾。任何手勢都先當「知道了」，不會順手翻頁。 */
 export function alarmFooter(): string {
-  return t('g.alarmFooter')
+  return `${t('g.closeHint')}  ·  ${t('g.alarmFooter')}`
 }
 
 /**
- * 依畫面種類與「有沒有另一道食譜可切換」決定提示的降級順序。
+ * 依畫面種類決定提示的降級順序。「雙擊關閉程式」不在這裡——它固定放在頁尾最左，
+ * 任何畫面、任何降級都不會被擠掉，使用者隨時知道怎麼離開。
  *
- * 最後一級固定是純 `HINT_MINIMAL`（不提切換）—— 連最基本的離開方式都要
- * 留得住，切換食譜是加分的資訊，放不下就先犧牲它。
+ * 最後一級固定是「長按主選單」：換菜、回主選單都從這裡走，放不下才整個捨棄。
  */
-function hintLadder(view: View | null, canSwitch: boolean): string[] {
-  const full = t('g.hintFull')
-  const fullSw = t('g.hintFullSw')
-  const short = t('g.hintShort')
-  const shortSw = t('g.hintShortSw')
+function hintLadder(view: View | null, menu: boolean): string[] {
+  if (menu) return [t('g.hintMenu'), t('g.hintMenuShort')]
   const minimal = t('g.hintMin')
-  const minimalSw = t('g.hintMinSw')
-  if (!view || view.kind === 'done') {
-    return canSwitch ? [minimalSw, minimal] : [minimal]
-  }
-  return canSwitch ? [fullSw, shortSw, minimalSw, minimal] : [full, short, minimal]
+  if (!view || view.kind === 'done') return [minimal]
+  return [t('g.hintFull'), t('g.hintShort'), minimal]
 }
 
 /**
  * 有計時但還沒開始的步驟：頁尾直接教怎麼開始、怎麼跳過。
- * 這是使用者最需要知道的一件事，所以寧可先犧牲「雙擊離開」。
+ * 這是使用者最需要知道的一件事，所以寧可先犧牲「長按主選單」。
  */
 function startLadder(seconds: number): string[] {
   const d = formatDuration(seconds)
@@ -296,7 +297,7 @@ function startLadder(seconds: number): string[] {
  * 最後才整個捨棄提示——時間本身永遠保留。
  */
 export function footerText(
-  { view, timer, startable, canSwitch }: FooterState,
+  { view, timer, startable, menu }: FooterState,
   innerWidth = FOOTER.w - 2 * FOOTER.pad,
 ): string {
   const pageSuffix =
@@ -305,26 +306,46 @@ export function footerText(
     view.pageCount > 1
       ? `${view.page + 1}/${view.pageCount}`
       : ''
-  const hints = startable !== null ? startLadder(startable) : hintLadder(view, canSwitch)
+  const hints = menu ? hintLadder(null, true) : startable !== null ? startLadder(startable) : hintLadder(view, false)
+  const close = t('g.closeHint')
 
   // 寫明「倒數」：標頭右上角已經有現在時間，頁尾只放「04:56」會被當成另一個時鐘。
-  const clock = timer
-    ? timer.label
-      ? t('g.countdownFor', { label: timer.label, t: formatClock(timer.remaining) })
-      : t('g.countdown', { t: formatClock(timer.remaining) })
-    : ''
+  const clock = (label: string) =>
+    timer
+      ? label
+        ? t('g.countdownFor', { label, t: formatClock(timer.remaining) })
+        : t('g.countdown', { t: formatClock(timer.remaining) })
+      : ''
   const more = timer?.others ? ` +${timer.others}` : ''
-  const compose = (barWidth: number, hint: string | null) => {
+  // 「雙擊關閉程式」永遠排在最左邊；計時與提示依空間降級。
+  const compose = (barWidth: number, hint: string | null, label: string, page: boolean, others: boolean) => {
     const bar = timer ? progressBar(timer.remaining, timer.total, barWidth) : ''
-    const left = [`${clock}${bar ? ` ${bar}` : ''}${more}`, pageSuffix].filter(Boolean).join('  ')
-    if (!hint) return left
-    return left ? `${left}  ·  ${hint}` : hint
+    const timerText = `${clock(label)}${bar ? ` ${bar}` : ''}${others ? more : ''}`
+    const mid = [timerText, page ? pageSuffix : ''].filter(Boolean).join('  ')
+    return [close, mid, hint].filter(Boolean).join('  ·  ')
   }
 
+  // 降級順序（由重要到次要，越後面越先被犧牲）：
+  // 倒數時間 > 是哪道菜哪一步 > 進度條、頁碼與「+N」> 提示。
+  // 同時煮好幾道時，「菜名 步驟 剩餘時間」比提示更要緊：寧可先把提示整條換短、甚至拿掉，
+  // 也要保住完整的菜名與步驟；實在放不下才把菜名換成短版，最後只剩「雙擊關閉程式 + 倒數」。
   const bars = timer ? [8, 5, 0] : [0]
-  const candidates = hints.flatMap(hint => bars.map(bar => compose(bar, hint)))
-  candidates.push(compose(0, null))
-  return candidates.find(text => measureTextWrap(text, innerWidth).lineCount <= 1) ?? clock
+  const labels = timer ? [...new Set([timer.label, timer.labelShort, ''])] : ['']
+  const tails: [boolean, boolean][] = [[true, true], [false, true], [false, false]]
+  const candidates: string[] = []
+  for (const label of labels) {
+    // 主選單一定要留著「長按返回」，否則使用者不知道怎麼離開；其他畫面提示最後才捨棄。
+    for (const hint of menu ? hints : [...hints, null]) {
+      for (const [page, others] of tails) {
+        for (const bar of bars) candidates.push(compose(bar, hint, label, page, others))
+      }
+    }
+  }
+  // 主選單的右欄與詳情本來就列出每道菜的剩餘時間，頁尾實在擠不下倒數時，
+  // 寧可只留「關閉程式 + 返回」，也不能讓使用者找不到離開選單的方法。
+  if (menu) for (const hint of hints) candidates.push([close, hint].join('  ·  '))
+  candidates.push(close)
+  return candidates.find(text => measureTextWrap(text, innerWidth).lineCount <= 1) ?? close
 }
 
 export interface RailSlot {
@@ -434,24 +455,95 @@ export function alarmBody(where: string, step: string): string {
 }
 
 /**
- * 待命畫面，也是第一次打開時看到的畫面：直接教四個手勢。
- * 計時怎麼開始不寫在這裡——等真的走到有計時的那一步，頁尾會當場提示。
+ * 待命畫面，也是第一次打開時看到的畫面：先說可以在手機選、或長按用眼鏡自己選，
+ * 再教四個手勢。雙擊關閉程式固定寫在頁尾最左，這裡不重複。
+ * 計時怎麼開始不在這裡細說——等真的走到有計時的那一步，頁尾會當場提示。
  */
 export function idleBody(): string {
-  return [t('g.idleHello'), '', t('g.gTap'), t('g.gUp'), t('g.gHold'), t('g.gDouble')].join('\n')
+  return [t('g.idleHello'), '', t('g.gDown'), t('g.gUp'), t('g.gTap'), t('g.gHold')].join('\n')
 }
 
 /**
- * 完成頁。同時煮好幾道時，煮完這道就長按換到下一道——這道已經從「進行中」
- * 拿掉，換走就等於關掉它；只剩這一道時不提長按，免得按了沒反應。
+ * 完成頁。長按就是關掉這道菜、回主選單選下一道——這道的進度與計時器都會清掉，
+ * 不會留在「進行中」。
  */
-export function doneBody(name: string, canSwitch: boolean): string {
-  return [
-    name,
-    '',
-    t('g.doneTitle'),
-    '',
-    ...(canSwitch ? [t('g.doneSwitch')] : []),
-    t('g.gDouble'),
-  ].join('\n')
+export function doneBody(name: string): string {
+  return [name, '', t('g.doneTitle'), '', t('g.doneMenu')].join('\n')
+}
+
+// ---------------------------------------------------------------------------
+// 主選單：長按進入，直接用眼鏡選一道菜（或採購清單），不必拿手機。
+// 右欄五格是清單（目前這項最亮），左欄是選中那項的詳情。
+// ---------------------------------------------------------------------------
+
+export interface MenuItem {
+  kind: 'dish' | 'shopping'
+  /** 食譜 id；採購清單固定是 'shopping'。 */
+  id: string
+  name: string
+  /** 一行說明：「6 步驟 · 15 分 · 簡單」或「3 項待買」。 */
+  meta: string
+  /** 煮到一半的菜：目前第幾步（1 起算）與總步數；沒開始煮是 null。 */
+  progress: { step: number; total: number } | null
+}
+
+/** 某道菜還在跑的計時器，給選單顯示「哪一步、剩多少」。 */
+export interface MenuTimer {
+  stepIndex: number
+  remaining: number
+}
+
+export function menuHeaderText(
+  selected: number,
+  total: number,
+  now: Date,
+  innerWidth = HEADER.w - 2 * HEADER.pad,
+): string {
+  const left = total > 0 ? `${t('g.menuTitle')} ${selected + 1}/${total}` : t('g.menuTitle')
+  return alignRight(left, formatClockTime(now), innerWidth)
+}
+
+/** 選中那項的詳情。計時器最多列兩個（最快到的），內文總共不超過 7 行。 */
+export function menuBody(item: MenuItem | null, timers: MenuTimer[]): string {
+  if (!item) return t('g.menuEmpty')
+  const lines = [item.name]
+  if (item.kind === 'shopping') {
+    lines.push(item.meta, '', t('g.menuOpenList'))
+    return lines.join('\n')
+  }
+  // 還停在食材頁（step 0）時沒有「煮到第幾步」可說，顯示一般說明，按鈕仍是「繼續」。
+  lines.push(
+    item.progress && item.progress.step > 0
+      ? t('g.menuCooking', { n: item.progress.step, total: item.progress.total })
+      : item.meta,
+  )
+  for (const tm of timers.slice(0, 2)) {
+    lines.push(t('g.menuTimer', { n: tm.stepIndex + 1, t: formatClock(tm.remaining) }))
+  }
+  lines.push('', item.progress ? t('g.menuResume') : t('g.menuOpen'))
+  return lines.join('\n')
+}
+
+/**
+ * 右欄的清單：視窗跟著選中項捲動。煮到一半的菜前面加「●」；有計時的菜名字後面
+ * 直接寫最快到的剩餘時間，同時煮兩道菜時不用進去就看得出哪道快到了。
+ */
+export function menuRail(
+  items: MenuItem[],
+  selected: number,
+  nextTimer: (item: MenuItem) => MenuTimer | null,
+): RailSlot[] {
+  const start =
+    items.length <= RAIL.slots ? 0 : Math.min(Math.max(selected - 2, 0), items.length - RAIL.slots)
+  return Array.from({ length: RAIL.slots }, (_, i) => {
+    const at = start + i
+    const item = items[at]
+    if (!item) return { content: '', brightness: BRIGHTNESS.dim }
+    const prefix = item.progress ? '● ' : ''
+    const timer = nextTimer(item)
+    const suffix = timer ? ` ${formatClock(timer.remaining)}` : ''
+    const room = RAIL_INNER_W - getTextWidth(prefix + suffix)
+    const content = `${prefix}${fitLabel(item.name, room)}${suffix}`
+    return { content, brightness: at === selected ? BRIGHTNESS.bright : BRIGHTNESS.dim }
+  })
 }

@@ -11,10 +11,11 @@
 import { getAdvW, measureTextWrap } from '@evenrealities/pretext'
 import { CATALOG_BASE } from '../src/data/catalog'
 import { CATALOG_TEXTS } from '../src/data/text'
-import { buildViews, doneBody, footerText, headerText, idleBody, alarmBody, railSlots, RAIL_INNER_W, BODY_INNER, FOOTER, HEADER } from '../src/glasses/views'
+import { alarmFooter, buildViews, doneBody, footerText, headerText, idleBody, alarmBody, menuBody, menuHeaderText, menuRail, railSlots, RAIL_INNER_W, BODY_INNER, FOOTER, HEADER, type MenuItem } from '../src/glasses/views'
 import { LANG_CODES, dictionaryOf, setLang, t, type Lang, type MsgKey } from '../src/i18n'
 import { zh } from '../src/i18n/zh'
 import type { Recipe } from '../src/core/types'
+import { formatClock } from '../src/core/timer'
 
 let errors = 0
 let warnings = 0
@@ -59,7 +60,7 @@ for (const lang of LANG_CODES) {
     if (!CJK_LANGS.includes(lang) && lang !== 'ko' && HAN.test(value)) fail(`${lang} ${key} 混進了漢字：${value}`)
     if (lang !== 'ja' && KANA.test(value)) fail(`${lang} ${key} 混進了假名：${value}`)
     if (lang !== 'ko' && HANGUL.test(value)) fail(`${lang} ${key} 混進了韓文：${value}`)
-    if (value.includes('  ') && !key.startsWith('g.g') && key !== 'g.doneSwitch' && key !== 'u.sh.sep' && !key.startsWith('g.countdown')) {
+    if (value.includes('  ') && !key.startsWith('g.g') && key !== 'g.menuTimer' && key !== 'u.sh.sep' && !key.startsWith('g.countdown')) {
       warn(`${lang} ${key} 有連續空白`)
     }
   }
@@ -91,39 +92,70 @@ for (const lang of LANG_CODES) {
 
   const sample = idleBody()
   if (lines(sample, BODY_INNER.width) > MAX_LINES) fail(`${lang} 待命畫面 ${lines(sample, BODY_INNER.width)} 行，超過 ${MAX_LINES}`)
-  for (const sw of [true, false]) {
-    const b = doneBody('Longest Recipe Name Here', sw)
-    if (lines(b, BODY_INNER.width) > MAX_LINES) fail(`${lang} 完成畫面（可切換=${sw}）超過 ${MAX_LINES} 行`)
-  }
+  const done = doneBody('Longest Recipe Name Here')
+  if (lines(done, BODY_INNER.width) > MAX_LINES) fail(`${lang} 完成畫面超過 ${MAX_LINES} 行`)
   const alarm = alarmBody(t('g.alarmWhereDish', { name: 'Longest Recipe Name Here', n: 12 }), 'x'.repeat(0) + dict['g.shoppingEmpty'])
   if (lines(alarm, BODY_INNER.width) > MAX_LINES) warn(`${lang} 響鈴畫面（最壞情況）超過 ${MAX_LINES} 行`)
   if (lines(dict['g.shoppingEmpty'], BODY_INNER.width) > MAX_LINES) fail(`${lang} 採購清單空畫面超過 ${MAX_LINES} 行`)
 
-  // 頁尾：各種組合都要一行放得下；有計時時一定留得住「倒數」
+  // 頁尾：各種組合都要一行放得下；「雙擊關閉程式」永遠在最左；有計時時一定留得住「倒數」
+  const closeHint = t('g.closeHint')
   const view = { kind: 'step', stepIndex: 1, body: '', page: 0, pageCount: 2 } as const
+  const dishName = 'Longest Dish'
   const scenarios = [
-    { label: '', remaining: 296, total: 300, others: 0 },
-    { label: t('g.timerStep', { n: 12 }), remaining: 5400, total: 5400, others: 2 },
-    { label: 'Tomato', remaining: 59, total: 90, others: 0 },
+    { label: '', labelShort: '', remaining: 296, total: 300, others: 0 },
+    { label: t('g.timerStep', { n: 12 }), labelShort: t('g.timerStep', { n: 12 }), remaining: 5400, total: 5400, others: 2 },
+    { label: `Tomato ${t('g.timerStep', { n: 12 })}`, labelShort: 'Tomato', remaining: 59, total: 90, others: 0 },
+    { label: `${dishName} ${t('g.timerStep', { n: 12 })}`, labelShort: dishName, remaining: 9000, total: 9000, others: 3 },
   ]
+  const checkFooter = (text: string, what: string) => {
+    if (lines(text, FOOTER_W) > 1) fail(`${lang} 頁尾超過一行（${what}）：${text}`)
+    if (!text.startsWith(closeHint)) fail(`${lang} 頁尾最左不是「${closeHint}」（${what}）：${text}`)
+    addGlyphs(`${lang} 介面`, text)
+  }
   for (const sc of scenarios) {
-    for (const canSwitch of [false, true]) {
-      for (const startable of [null, 90, 5400]) {
-        const text = footerText({ view, timer: sc, startable, canSwitch })
-        if (lines(text, FOOTER_W) > 1) fail(`${lang} 頁尾超過一行：${text}`)
-        const needle = t('g.countdown', { t: '' }).trim().split(' ')[0]
-        if (!text.includes(needle.slice(0, 2))) warn(`${lang} 頁尾可能少了倒數字樣：${text}`)
-        addGlyphs(`${lang} 介面`, text)
+    for (const startable of [null, 90, 5400]) {
+      for (const v of [view, null]) {
+        const text = footerText({ view: v, timer: sc, startable, menu: false })
+        checkFooter(text, `計時 ${sc.label || '本步'}`)
+        // 倒數時間（mm:ss）無論如何不能被擠掉
+        if (!text.includes(formatClock(sc.remaining))) fail(`${lang} 頁尾少了倒數時間：${text}`)
       }
     }
+    const menuFooter = footerText({ view: null, timer: sc, startable: null, menu: true })
+    checkFooter(menuFooter, '主選單+計時')
+    if (!menuFooter.includes(t('g.hintMenuShort'))) fail(`${lang} 主選單頁尾少了「返回」提示：${menuFooter}`)
   }
-  // 頁尾提示至少要有一級完整放得下（沒計時時）
-  const idleFooter = footerText({ view: null, timer: null, startable: null, canSwitch: true })
-  if (!idleFooter.trim()) fail(`${lang} 待命頁尾是空的`)
-  const nonTimerFooter = footerText({ view, timer: null, startable: null, canSwitch: true })
-  if (nonTimerFooter === '1/2') warn(`${lang} 步驟頁尾放不下任何提示：${nonTimerFooter}`)
-  const startFooter = footerText({ view, timer: null, startable: 5400, canSwitch: false })
+  for (const [what, v, menu] of [['待命', null, false], ['步驟', view, false], ['主選單', null, true]] as const) {
+    const text = footerText({ view: v, timer: null, startable: null, menu })
+    checkFooter(text, what)
+    if (text === closeHint) warn(`${lang} ${what}頁尾放不下任何提示：${text}`)
+  }
+  checkFooter(alarmFooter(), '響鈴')
+  const startFooter = footerText({ view, timer: null, startable: 5400, menu: false })
   if (!startFooter.includes(t('g.start4').slice(0, 2))) warn(`${lang} 開始計時提示被擠掉：${startFooter}`)
+
+  // 主選單：標頭一行、詳情不超過 7 行、右欄每格一行
+  const header = menuHeaderText(11, 12, new Date(2026, 0, 1, 23, 59))
+  if (lines(header, HEADER.w - 2 * HEADER.pad) > 1) fail(`${lang} 主選單標頭超過一行：${header}`)
+  const worst: MenuItem = {
+    kind: 'dish', id: 'x', name: 'A very long recipe name that wraps onto two lines', progress: { step: 12, total: 12 },
+    meta: t('u.rowMeta', { n: 12, min: 180, diff: t('diff.hard') }),
+  }
+  const timers = [{ stepIndex: 11, remaining: 9000 }, { stepIndex: 9, remaining: 59 }, { stepIndex: 3, remaining: 5 }]
+  for (const [what, item] of [['煮到一半', worst], ['沒開始', { ...worst, progress: null }]] as const) {
+    const body = menuBody(item, timers)
+    addGlyphs(`${lang} 介面`, body)
+    if (lines(body, BODY_INNER.width) > MAX_LINES) fail(`${lang} 主選單詳情（${what}）${lines(body, BODY_INNER.width)} 行，超過 ${MAX_LINES}`)
+  }
+  const shop: MenuItem = { kind: 'shopping', id: 'shopping', name: t('g.shoppingTitle'), meta: t('g.menuShopping', { n: 12 }), progress: null }
+  if (lines(menuBody(shop, []), BODY_INNER.width) > MAX_LINES) fail(`${lang} 主選單採購清單詳情超過 ${MAX_LINES} 行`)
+  if (lines(menuBody(null, []), BODY_INNER.width) > MAX_LINES) fail(`${lang} 主選單空畫面超過 ${MAX_LINES} 行`)
+  const menuItems = [worst, ...Array.from({ length: 6 }, (_, i) => ({ ...worst, id: `d${i}`, name: `Recipe ${i}` })), shop]
+  for (const slot of menuRail(menuItems, 3, it => (it.id === 'x' ? timers[0] : null))) {
+    if (slot.content && lines(slot.content, RAIL_INNER_W) > 1) fail(`${lang} 主選單右欄超過一行：${slot.content}`)
+    addGlyphs(`${lang} 介面`, slot.content)
+  }
 }
 
 // ---------- 3. 內建食譜 ----------
