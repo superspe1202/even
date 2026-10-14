@@ -212,6 +212,16 @@ export interface FooterState {
   startable: number | null
   /** 正在主選單：頁尾改教選單的手勢。 */
   menu?: boolean
+  /** 雙擊會關閉什麼：整個程式（主畫面）、這道菜、這份清單。省略時依畫面推斷。 */
+  close?: 'app' | 'dish' | 'list'
+  /** 正在問「要關閉這道菜嗎」：頁尾改成確認／取消的提示。 */
+  confirm?: boolean
+}
+
+/** 雙擊的意義：只有在主畫面（主選單、待命）才是關閉程式；在菜或清單裡只關閉那一個。 */
+export function closeKindOf(view: View | null, menu: boolean): 'app' | 'dish' | 'list' {
+  if (menu || !view) return 'app'
+  return view.kind === 'shopping' ? 'list' : 'dish'
 }
 
 /**
@@ -279,7 +289,8 @@ function progressBar(remaining: number, total: number, width: number): string {
 
 /** 計時響起時的頁尾。任何手勢都先當「知道了」，不會順手翻頁。 */
 export function alarmFooter(): string {
-  return `${t('g.closeHint')}  ·  ${t('g.alarmFooter')}`
+  // 響鈴時任何手勢（包括雙擊）都只是「知道了」，不會關菜或關程式。
+  return t('g.alarmFooter')
 }
 
 /**
@@ -288,7 +299,8 @@ export function alarmFooter(): string {
  *
  * 最後一級固定是「長按主選單」：換菜、回主選單都從這裡走，放不下才整個捨棄。
  */
-function hintLadder(view: View | null, menu: boolean): string[] {
+function hintLadder(view: View | null, menu: boolean, confirm = false): string[] {
+  if (confirm) return [t('g.hintConfirm')]
   if (menu) return [t('g.hintMenu'), t('g.hintMenuShort')]
   const minimal = t('g.hintMin')
   if (!view || view.kind === 'done') return [minimal]
@@ -315,7 +327,7 @@ function startLadder(seconds: number): string[] {
  * 最後才整個捨棄提示——時間本身永遠保留。
  */
 export function footerText(
-  { view, timer, startable, menu }: FooterState,
+  { view, timer, startable, menu, close: closeKind, confirm }: FooterState,
   innerWidth = FOOTER.w - 2 * FOOTER.pad,
 ): string {
   const pageSuffix =
@@ -324,8 +336,17 @@ export function footerText(
     view.pageCount > 1
       ? `${view.page + 1}/${view.pageCount}`
       : ''
-  const hints = menu ? hintLadder(null, true) : startable !== null ? startLadder(startable) : hintLadder(view, false)
-  const close = t('g.closeHint')
+  const hints = confirm
+    ? hintLadder(view, false, true)
+    : menu
+      ? hintLadder(null, true)
+      : startable !== null
+        ? startLadder(startable)
+        : hintLadder(view, false)
+  const kind = closeKind ?? closeKindOf(view, !!menu)
+  const close = t(
+    confirm ? 'g.closeConfirmHint' : kind === 'app' ? 'g.closeHint' : kind === 'dish' ? 'g.closeDishHint' : 'g.closeListHint',
+  )
 
   // 寫明「倒數」：標頭右上角已經有現在時間，頁尾只放「04:56」會被當成另一個時鐘。
   const clock = (label: string) =>
@@ -335,7 +356,7 @@ export function footerText(
         : t('g.countdown', { t: formatClock(timer.remaining) })
       : ''
   const more = timer?.others ? ` +${timer.others}` : ''
-  // 「雙擊關閉程式」永遠排在最左邊；計時與提示依空間降級。
+  // 「雙擊…」永遠排在最左邊（依畫面是關閉程式、這道菜或這份清單）；計時與提示依空間降級。
   const compose = (barWidth: number, hint: string | null, label: string, page: boolean, others: boolean) => {
     const bar = timer ? progressBar(timer.remaining, timer.total, barWidth) : ''
     const timerText = `${clock(label)}${bar ? ` ${bar}` : ''}${others ? more : ''}`
@@ -487,6 +508,14 @@ export function idleBody(): string {
  */
 export function doneBody(name: string): string {
   return [name, '', t('g.doneTitle'), '', t('g.doneMenu')].join('\n')
+}
+
+/**
+ * 關閉一道還沒煮完的菜之前的確認畫面。進度與計時一關就清掉、無法復原，
+ * 所以先問一次：再雙擊才關，其他手勢都取消。
+ */
+export function confirmCloseBody(name: string): string {
+  return [t('g.confirmTitle', { name }), '', t('g.confirmInfo'), '', t('g.closeConfirmHint')].join('\n')
 }
 
 // ---------------------------------------------------------------------------

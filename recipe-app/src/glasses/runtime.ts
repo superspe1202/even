@@ -24,6 +24,7 @@ import {
   RAIL,
   buildShoppingViews,
   buildViews,
+  confirmCloseBody,
   currentStepOf,
   doneBody,
   footerText,
@@ -162,6 +163,8 @@ export class GlassesRuntime {
    */
   private menu: { items: MenuItem[]; selected: number } | null = null
   private lastMenuBody = ''
+  /** 正在問「要關閉這道菜嗎」。再雙擊才關，其他手勢取消。 */
+  private confirmClose = false
 
   constructor(
     private readonly bridge: GlassesBridge,
@@ -239,6 +242,7 @@ export class GlassesRuntime {
   /** 載入食譜並跳到指定畫面（例如還原上次進度、或切換到另一道食譜）。 */
   async load(recipe: Recipe, viewIndex = 0): Promise<void> {
     this.menu = null
+    this.confirmClose = false
     this.recipe = recipe
     this.shoppingLines = null
     this.title = recipe.name
@@ -254,6 +258,7 @@ export class GlassesRuntime {
    */
   async loadShoppingList(lines: string[]): Promise<void> {
     this.menu = null
+    this.confirmClose = false
     this.recipe = null
     this.shoppingLines = lines
     this.title = t('g.shoppingTitle')
@@ -382,6 +387,7 @@ export class GlassesRuntime {
   /** 眼鏡回到待命畫面（例如手機上結束了正在顯示的那道菜，又沒有別道在煮）。 */
   async unload(): Promise<void> {
     this.menu = null
+    this.confirmClose = false
     this.recipe = null
     this.shoppingLines = null
     this.title = 'Recipe Glass'
@@ -466,24 +472,41 @@ export class GlassesRuntime {
         return
       }
 
-      // 雙擊離開放在最前面：不論事件從哪個信封來，使用者都必須能退出。
-      // 只叫出系統的「確定離開？」對話框，這裡不收拾——使用者按取消的話
-      // App 還在畫面上，要繼續收得到事件。確定離開會再送 SYSTEM_EXIT_EVENT。
-      if (is(OsEventTypeList.DOUBLE_CLICK_EVENT)) {
-        this.bridge.shutDownPageContainer(1)
-        return
-      }
-
       // 正在響鈴時，任何動作都先當作「我知道了」，不翻頁也不切換食譜。
       if (this.alarms.length) {
         if (
           is(OsEventTypeList.SCROLL_TOP_EVENT) ||
           is(OsEventTypeList.SCROLL_BOTTOM_EVENT) ||
           is(OsEventTypeList.CLICK_EVENT) ||
-          is(OsEventTypeList.LONG_PRESS_EVENT)
+          is(OsEventTypeList.LONG_PRESS_EVENT) ||
+          is(OsEventTypeList.DOUBLE_CLICK_EVENT)
         ) {
           void this.dismissAlarm()
         }
+        return
+      }
+
+      // 確認「關閉這道菜」：再雙擊才真的關，點擊、滑動、長按都是取消。
+      if (this.confirmClose) {
+        if (is(OsEventTypeList.DOUBLE_CLICK_EVENT)) void this.closeAndOpenMenu()
+        else if (
+          is(OsEventTypeList.SCROLL_TOP_EVENT) ||
+          is(OsEventTypeList.SCROLL_BOTTOM_EVENT) ||
+          is(OsEventTypeList.LONG_PRESS_EVENT)
+        ) {
+          void this.cancelConfirm()
+        } else if (is(OsEventTypeList.CLICK_EVENT)) {
+          // 雙擊後面可能緊跟著一個沒有型別的點擊，半秒內不當成取消。
+          if (Date.now() - this.lastNavAt >= CLICK_GUARD_MS) void this.cancelConfirm()
+        }
+        return
+      }
+
+      // 雙擊：在主畫面（主選單、待命）是關閉程式；在菜或清單裡只關閉那一個，回到主選單。
+      // 只叫出系統的「確定離開？」對話框，這裡不收拾——使用者按取消的話
+      // App 還在畫面上，要繼續收得到事件。確定離開會再送 SYSTEM_EXIT_EVENT。
+      if (is(OsEventTypeList.DOUBLE_CLICK_EVENT)) {
+        void this.onDoubleTap()
         return
       }
 
@@ -530,6 +553,7 @@ export class GlassesRuntime {
   }
 
   async go(delta: number): Promise<void> {
+    this.confirmClose = false
     const next = this.index + delta
     if (next < 0 || next >= this.views.length || next === this.index) return
     this.index = next
@@ -538,6 +562,7 @@ export class GlassesRuntime {
 
   /** 讓手機端可以直接跳到某一步。 */
   async jumpTo(viewIndex: number): Promise<void> {
+    this.confirmClose = false
     if (viewIndex < 0 || viewIndex >= this.views.length) return
     this.index = viewIndex
     await this.render()
@@ -566,6 +591,7 @@ export class GlassesRuntime {
       this.lastMenuBody = text
       return text
     }
+    if (this.confirmClose) return confirmCloseBody(this.title)
     const view = this.view
     if (!view) return idleBody()
     if (view.kind === 'done') return doneBody(this.title)
@@ -593,21 +619,64 @@ export class GlassesRuntime {
     return item ? this.menuTimers(item) : []
   }
 
+  private get closeKind() {
+    // 空的採購清單的畫面種類是 'empty'，不能靠畫面推斷，直接看顯示的是什麼。
+    if (this.menu || (!this.recipe && !this.shoppingLines)) return 'app'
+    return this.shoppingLines ? 'list' : 'dish'
+  }
+
+  private async onDoubleTap(): Promise<void> {
+    if (this.closeKind === 'app') {
+      this.bridge.shutDownPageContainer(1)
+      return
+    }
+    // 還沒煮完的菜：關掉就丟掉進度與計時，先問一次。煮完的菜與採購清單沒有東西可丟，直接關。
+    if (this.recipe && this.view?.kind !== 'done') {
+      this.confirmClose = true
+      await this.render()
+      return
+    }
+    await this.closeAndOpenMenu()
+  }
+
+  private async cancelConfirm(): Promise<void> {
+    if (!this.confirmClose) return
+    this.confirmClose = false
+    await this.render()
+  }
+
+  /**
+   * 關閉目前顯示的菜（計時清零、放掉這道菜）或採購清單，然後回到主選單。
+   * 外層收到 `onDishClosed` 要把進度也清掉、從「進行中」拿掉。
+   */
+  private closeContent(): void {
+    this.confirmClose = false
+    if (this.recipe) {
+      const id = this.recipe.id
+      this.cancelTimersFor(id)
+      this.recipe = null
+      this.callbacks.onDishClosed?.(id)
+    }
+    this.shoppingLines = null
+    this.views = []
+    this.index = 0
+    this.title = 'Recipe Glass'
+  }
+
+  private async closeAndOpenMenu(): Promise<void> {
+    this.closeContent()
+    await this.openMenu()
+  }
+
   /**
    * 長按：開主選單。完成頁的長按等於「這道菜煮完了」——進度早在走到完成頁時就清掉，
    * 這裡再把它的計時器清零並放掉這道菜，選單裡就不會再看到它、返回也回到待命畫面。
    */
   async openMenu(): Promise<void> {
     if (this.menu || this.alarms.length) return
-    if (this.recipe && this.view?.kind === 'done') {
-      const id = this.recipe.id
-      this.cancelTimersFor(id)
-      this.recipe = null
-      this.views = []
-      this.index = 0
-      this.title = 'Recipe Glass'
-      this.callbacks.onDishClosed?.(id)
-    }
+    // 確認畫面開著時長按＝取消，不開選單。
+    if (this.confirmClose) return this.cancelConfirm()
+    if (this.recipe && this.view?.kind === 'done') this.closeContent()
     const items = (await this.callbacks.menuItems?.()) ?? []
     // 預設選在「另一道煮到一半的菜」：長按之後馬上點擊，就是在兩道菜之間切換。
     const loaded = this.recipe?.id
@@ -808,6 +877,8 @@ export class GlassesRuntime {
       timer: this.footerTimer(),
       startable: this.startableSeconds(),
       menu: this.menu !== null,
+      close: this.closeKind,
+      confirm: this.confirmClose,
     })
   }
 

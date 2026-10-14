@@ -95,9 +95,11 @@ async function boot() {
     },
     menuItems: () => buildMenuItems(store),
     onPickMenuItem: item => pickMenuItem(store, item),
-    // 完成頁長按：這道菜已關閉（進度在走到完成頁時就清掉了），不再算「正在煮」。
+    // 這道菜被關閉了（完成頁長按、或在菜裡雙擊並確認）：進度清掉、不再算「正在煮」。
+    // 計時器在眼鏡執行時期已經取消。
     onDishClosed: id => {
       active.delete(id)
+      void store.clearProgress(id)
       if (cookingId === id) cookingId = null
     },
     onTimersChange: timers => void store.saveTimers(timers),

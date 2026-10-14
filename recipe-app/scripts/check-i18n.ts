@@ -11,7 +11,7 @@
 import { getAdvW, measureTextWrap } from '@evenrealities/pretext'
 import { CATALOG_BASE } from '../src/data/catalog'
 import { CATALOG_TEXTS } from '../src/data/text'
-import { alarmFooter, buildViews, doneBody, footerText, headerText, idleBody, alarmBody, menuBody, menuHeaderText, menuRail, railSlots, RAIL_INNER_W, BODY_INNER, FOOTER, HEADER, type MenuItem } from '../src/glasses/views'
+import { alarmFooter, buildViews, confirmCloseBody, doneBody, footerText, headerText, idleBody, alarmBody, menuBody, menuHeaderText, menuRail, railSlots, RAIL_INNER_W, BODY_INNER, FOOTER, HEADER, type MenuItem } from '../src/glasses/views'
 import { LANG_CODES, dictionaryOf, setLang, t, type Lang, type MsgKey } from '../src/i18n'
 import { zh } from '../src/i18n/zh'
 import type { Recipe } from '../src/core/types'
@@ -99,7 +99,9 @@ for (const lang of LANG_CODES) {
   if (lines(dict['g.shoppingEmpty'], BODY_INNER.width) > MAX_LINES) fail(`${lang} 採購清單空畫面超過 ${MAX_LINES} 行`)
 
   // 頁尾：各種組合都要一行放得下；「雙擊關閉程式」永遠在最左；有計時時一定留得住「倒數」
-  const closeHint = t('g.closeHint')
+  const closeApp = t('g.closeHint')
+  const closeDish = t('g.closeDishHint')
+  const closeList = t('g.closeListHint')
   const view = { kind: 'step', stepIndex: 1, body: '', page: 0, pageCount: 2 } as const
   const dishName = 'Longest Dish'
   const scenarios = [
@@ -108,30 +110,39 @@ for (const lang of LANG_CODES) {
     { label: `Tomato ${t('g.timerStep', { n: 12 })}`, labelShort: 'Tomato', remaining: 59, total: 90, others: 0 },
     { label: `${dishName} ${t('g.timerStep', { n: 12 })}`, labelShort: dishName, remaining: 9000, total: 9000, others: 3 },
   ]
-  const checkFooter = (text: string, what: string) => {
+  const checkFooter = (text: string, what: string, left: string | null) => {
     if (lines(text, FOOTER_W) > 1) fail(`${lang} 頁尾超過一行（${what}）：${text}`)
-    if (!text.startsWith(closeHint)) fail(`${lang} 頁尾最左不是「${closeHint}」（${what}）：${text}`)
+    if (left && !text.startsWith(left)) fail(`${lang} 頁尾最左不是「${left}」（${what}）：${text}`)
     addGlyphs(`${lang} 介面`, text)
   }
   for (const sc of scenarios) {
     for (const startable of [null, 90, 5400]) {
       for (const v of [view, null]) {
         const text = footerText({ view: v, timer: sc, startable, menu: false })
-        checkFooter(text, `計時 ${sc.label || '本步'}`)
+        checkFooter(text, `計時 ${sc.label || '本步'}`, v ? closeDish : closeApp)
         // 倒數時間（mm:ss）無論如何不能被擠掉
         if (!text.includes(formatClock(sc.remaining))) fail(`${lang} 頁尾少了倒數時間：${text}`)
       }
     }
     const menuFooter = footerText({ view: null, timer: sc, startable: null, menu: true })
-    checkFooter(menuFooter, '主選單+計時')
+    checkFooter(menuFooter, '主選單+計時', closeApp)
     if (!menuFooter.includes(t('g.hintMenuShort'))) fail(`${lang} 主選單頁尾少了「返回」提示：${menuFooter}`)
   }
-  for (const [what, v, menu] of [['待命', null, false], ['步驟', view, false], ['主選單', null, true]] as const) {
+  const shopView = { kind: 'shopping', body: '', page: 0, pageCount: 2 } as const
+  for (const [what, v, menu, left] of [['待命', null, false, closeApp], ['步驟', view, false, closeDish], ['清單', shopView, false, closeList], ['主選單', null, true, closeApp]] as const) {
     const text = footerText({ view: v, timer: null, startable: null, menu })
-    checkFooter(text, what)
-    if (text === closeHint) warn(`${lang} ${what}頁尾放不下任何提示：${text}`)
+    checkFooter(text, what, left)
+    if (text === left) warn(`${lang} ${what}頁尾放不下任何提示：${text}`)
   }
-  checkFooter(alarmFooter(), '響鈴')
+  // 響鈴：任何手勢都只是「知道了」，頁尾不提關閉
+  checkFooter(alarmFooter(), '響鈴', null)
+  // 確認關閉：頁尾最左是「雙擊確認」，帶計時時倒數仍保留
+  const confirmFooter = footerText({ view, timer: scenarios[3], startable: null, confirm: true })
+  checkFooter(confirmFooter, '確認關閉', t('g.closeConfirmHint'))
+  if (!confirmFooter.includes(formatClock(scenarios[3].remaining))) fail(`${lang} 確認畫面頁尾少了倒數：${confirmFooter}`)
+  const confirm = confirmCloseBody('A very long recipe name that wraps onto two lines')
+  addGlyphs(`${lang} 介面`, confirm)
+  if (lines(confirm, BODY_INNER.width) > MAX_LINES) fail(`${lang} 確認關閉畫面 ${lines(confirm, BODY_INNER.width)} 行，超過 ${MAX_LINES}`)
   const startFooter = footerText({ view, timer: null, startable: 5400, menu: false })
   if (!startFooter.includes(t('g.start4').slice(0, 2))) warn(`${lang} 開始計時提示被擠掉：${startFooter}`)
 
