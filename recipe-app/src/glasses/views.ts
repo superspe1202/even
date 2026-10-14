@@ -515,7 +515,8 @@ export function doneBody(name: string): string {
  * 所以先問一次：再雙擊才關，其他手勢都取消。
  */
 export function confirmCloseBody(name: string): string {
-  return [t('g.confirmTitle', { name }), '', t('g.confirmInfo'), '', t('g.closeConfirmHint')].join('\n')
+  // 取消的說法也寫進內文：頁尾在某些語言放不下，使用者不能不知道怎麼取消。
+  return [t('g.confirmTitle', { name }), '', t('g.confirmInfo'), t('g.closeConfirmHint'), t('g.hintConfirm')].join('\n')
 }
 
 // ---------------------------------------------------------------------------
