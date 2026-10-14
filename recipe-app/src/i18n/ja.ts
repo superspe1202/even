@@ -36,7 +36,7 @@ export const ja: Record<MsgKey, string> = {
   "g.shoppingEmpty": "買い物リストは空です。\n\nスマホでレシピの材料を追加してください。",
   "g.timerStep": "手順{n}",
   "g.countdown": "タイマー {t}",
-  "g.countdownFor": "タイマー（{label}）{t}",
+  "g.countdownFor": "{label} {t}",
   "g.hintFull": "下スワイプ：次へ · 上スワイプ：戻る · 長押し：メニュー",
   "g.hintShort": "下スワイプ：次へ · 長押し：メニュー",
   "g.hintMin": "長押し：メニュー",

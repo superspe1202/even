@@ -232,13 +232,31 @@ export function timerLabel(
   return { label: `${name} ${step}`, short: name }
 }
 
-/** 別道菜的名字放進頁尾最多佔這麼寬（約四個中文字、八九個英文字母）。 */
-const DISH_LABEL_PX = 90
+/** 別道菜的名字放進頁尾最多佔這麼寬（約五個中文字、十來個英文字母）。 */
+const DISH_LABEL_PX = 110
 
-/** 照實際字寬截到放得下，不加省略號（頁尾寸土寸金，名字只是用來認得是哪道菜）。 */
+/**
+ * 頁尾裡的菜名簡稱：先拿掉括號裡的補充（「薑母鴨（しょうが鴨鍋）」→「薑母鴨」），
+ * 西文在字與字之間截（「Ginger Duck Hot Pot」→「Ginger Duck」，不會是「Ginger Du」），
+ * 中日韓才逐字截。不加省略號——頁尾寸土寸金，名字只是用來認得是哪道菜。
+ */
 function clipToWidth(text: string, maxPx: number): string {
+  const base = text.split(/[（(［[]/)[0].trim() || text.trim()
+  if (getTextWidth(base) <= maxPx) return base
+  // 西文在字與字、連字號之間斷（「Ginger Duck Hot Pot」「Ingwer-Enten-Topf」）。
+  const words = base.split(/(?<=[\s-])/)
+  if (words.length > 1) {
+    let out = ''
+    for (const word of words) {
+      if (getTextWidth((out + word).trimEnd()) > maxPx) break
+      out += word
+    }
+    // 截在介系詞上很怪（「Marmite de」），再退一個字。
+    out = out.replace(/[\s-]+$/, '').replace(/\s+(de|du|des|di|del|dei|da|la|le|el|al|und|and|of|&)$/i, '')
+    if (out) return out
+  }
   let out = ''
-  for (const ch of Array.from(text)) {
+  for (const ch of Array.from(base)) {
     if (getTextWidth(out + ch) > maxPx) break
     out += ch
   }

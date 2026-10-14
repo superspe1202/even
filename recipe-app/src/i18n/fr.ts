@@ -36,7 +36,7 @@ export const fr: Record<MsgKey, string> = {
   "g.shoppingEmpty": "Votre liste de courses est vide.\n\nAjoutez les ingrédients d'une recette sur le téléphone.",
   "g.timerStep": "Étape {n}",
   "g.countdown": "Minuteur {t}",
-  "g.countdownFor": "Minuteur ({label}) {t}",
+  "g.countdownFor": "{label} {t}",
   "g.hintFull": "Glisser bas : suivant · Glisser haut : retour · Appui long : menu",
   "g.hintShort": "Glisser bas : suivant · Appui long : menu",
   "g.hintMin": "Appui long : menu",

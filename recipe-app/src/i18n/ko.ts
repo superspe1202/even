@@ -36,7 +36,7 @@ export const ko: Record<MsgKey, string> = {
   "g.shoppingEmpty": "장보기 목록이 비어 있어요.\n\n휴대폰에서 레시피의 재료를 추가하세요.",
   "g.timerStep": "{n}단계",
   "g.countdown": "타이머 {t}",
-  "g.countdownFor": "타이머 ({label}) {t}",
+  "g.countdownFor": "{label} {t}",
   "g.hintFull": "아래로 스와이프: 다음 · 위로 스와이프: 이전 · 길게 누르기: 메뉴",
   "g.hintShort": "아래로 스와이프: 다음 · 길게 누르기: 메뉴",
   "g.hintMin": "길게 누르기: 메뉴",
