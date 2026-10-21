@@ -18,6 +18,7 @@ import {
   ONLINE_IMPORT_ENABLED,
   type RecipeOption,
   emptyRecipe,
+  MAX_RETRIES,
   generateFromQuery,
   importFromUrl,
   isYouTube,
@@ -154,6 +155,8 @@ export class PhoneUi {
   private shopping!: ShoppingList
   private query: CatalogQuery = emptyQuery()
   private busy = false
+  /** AI 重試時顯示「第 n 次沒成功」，離開忙碌狀態就清掉。 */
+  private retryNote = ''
   private error = ''
   private toast = ''
   /** 整頁重繪會清掉輸入框；失敗時要留著使用者打的字，不必重打。 */
@@ -277,6 +280,13 @@ export class PhoneUi {
   private fail(message: string) {
     this.error = message
     this.busy = false
+    this.retryNote = ''
+    this.render()
+  }
+
+  /** 第 failed 次失敗、準備重試：更新忙碌提示。 */
+  private noteRetry(failed: number) {
+    this.retryNote = t('u.retry.note', { n: failed, max: MAX_RETRIES })
     this.render()
   }
 
@@ -635,10 +645,12 @@ export class PhoneUi {
 
     this.busy = true
     this.error = ''
+    this.retryNote = ''
     this.render()
     try {
-      const recipe = await importFromUrl(url)
+      const recipe = await importFromUrl(url, failed => this.noteRetry(failed))
       this.busy = false
+      this.retryNote = ''
       this.draftUrl = ''
       // 直接進編輯器：AI 解析難免有出入，讓使用者先過目再存。
       this.go({ name: 'editor', recipe, isNew: true })
@@ -655,11 +667,13 @@ export class PhoneUi {
 
     this.busy = true
     this.error = ''
+    this.retryNote = ''
     this.searchResults = []
     this.render()
     try {
-      this.searchResults = await generateFromQuery(query)
+      this.searchResults = await generateFromQuery(query, failed => this.noteRetry(failed))
       this.busy = false
+      this.retryNote = ''
       // 先列出幾種做法讓使用者挑；挑了才進編輯器過目、確認後才存。
       this.render()
       // 結果在搜尋框下面，手機一個畫面放不下；捲過去讓使用者知道下面還有。
@@ -1348,7 +1362,7 @@ export class PhoneUi {
         <button class="primary" data-action="run-import" ${this.busy ? 'disabled' : ''}>
           ${this.busy ? t('u.imp.busy') : t('u.imp.run')}
         </button>
-        <p class="caption">${t('u.imp.note')}</p>
+        <p class="caption">${this.busy && this.retryNote ? esc(this.retryNote) : t('u.imp.note')}</p>
       </div>`
   }
 
@@ -1366,7 +1380,7 @@ export class PhoneUi {
           ${this.busy ? t('u.se.busy') : this.searchResults.length ? t('u.se.again') : t('u.se.run')}
         </button>
         <p class="caption">
-          ${this.busy ? t('u.se.wait') : t('u.se.hint')}
+          ${this.busy ? esc(this.retryNote || t('u.se.wait')) : t('u.se.hint')}
         </p>
       </div>
       ${this.searchResults.length ? this.searchOptions() : ''}`

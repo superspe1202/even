@@ -239,9 +239,20 @@ async function readCapped(response: Response): Promise<string> {
  */
 function limits(lang: Lang) {
   return isCjk(lang)
-    ? { name: 10, label: 6, summary: 25, step: 60 }
-    : { name: 28, label: 16, summary: 70, step: 130 }
+    ? { name: 10, label: 6, summary: 25, step: 120 }
+    : { name: 28, label: 16, summary: 70, step: 240 }
 }
+
+/**
+ * 步驟要寫到「照著做就會成」：火候、時間、變色或熟成的判斷都要有。眼鏡會自動分頁，
+ * 所以步驟可以比以前長；但不確定的精確數字要給合理範圍，不要編造精準的假數據。
+ */
+const DETAIL_RULE = `Make every step specific enough to follow without guessing:
+- State the heat level (low / medium / high, or the equivalent wording in the output language) for each cooking step.
+- State how long, and give a visual or sensory sign that it is done: colour change, texture, smell, sound, or doneness (for example "the edges turn golden and the oil starts to bubble around the pan").
+- For aging, fermenting, marinating, resting or cooling steps, state the duration, the temperature or place, and how to tell it is ready.
+- Name the exact ingredient and amount used in that step when it matters.
+- If you are not sure of an exact time or temperature, give a sensible range and a visual cue instead of inventing a precise number.`
 
 /** 提示詞一律用英文寫（模型最穩），再明講輸出語言；輸出裡的欄位名稱維持英文不翻。 */
 function languageRule(lang: Lang): string {
@@ -263,6 +274,8 @@ The user gives you the text of a web page. Extract the recipe from it.
 
 ${languageRule(lang)}
 
+${DETAIL_RULE}
+
 Rules:
 - Output JSON only. No explanations and no markdown.
 - name: the recipe name, at most ${l.name} characters.
@@ -270,7 +283,7 @@ Rules:
 - totalMinutes: total time in minutes, an integer.
 - ingredients: an array of { "item": "name", "amount": "quantity" }. Use an empty string when no quantity is given.
 - steps: an array of { "text": "what to do", "timerSeconds": seconds, "tip": "reminder" }.
-  - text: at most ${l.step} characters per step, written as an instruction, without numbering. It is shown on the glasses, so long text cannot be read.
+  - text: at most ${l.step} characters per step, written as a complete instruction (heat, time and doneness cue included), without numbering. It is shown on the glasses in pages, so give the detail; do not pad it.
   - timerSeconds: only when the source clearly mentions a waiting or cooking time (for example "fry for five minutes" gives 300). Omit the field otherwise.
   - tip: only for an important reminder. Omit it otherwise.
 - If the content is not a recipe at all, return { "error": "not_recipe" }. Return the literal code, not a sentence.
@@ -297,6 +310,8 @@ so the user can pick one to cook.
 
 ${languageRule(lang)}
 
+${DETAIL_RULE}
+
 The versions must differ in substance, for example: the traditional classic, a quick and simple version,
 a regional or family variation, or a different main seasoning or cooking method (braised, stir-fried, rice cooker).
 Do not just change the quantities, and do not invent versions that do not exist.
@@ -313,7 +328,7 @@ Rules:
 - totalMinutes: total time in minutes, an integer.
 - ingredients: an array of { "item": "name", "amount": "quantity" }. Give a common quantity (for example "2 tbsp"), or "to taste" when unsure.
 - steps: an array of { "text": "what to do", "timerSeconds": seconds, "tip": "reminder" }.
-  - text: at most ${l.step} characters per step, written as an instruction, without numbering. It is shown on the glasses, so long text cannot be read.
+  - text: at most ${l.step} characters per step, written as a complete instruction (heat, time and doneness cue included), without numbering. It is shown on the glasses in pages, so give the detail; do not pad it.
   - timerSeconds: only when the step usually needs a wait or a cooking time (for example "simmer 20 minutes" gives 1200). Omit it when unsure.
   - tip: only for a detail worth reminding. Omit it otherwise.
 - If the keyword does not look like food or a dish name, return { "error": "not_food" }. Return the literal code, not a sentence.

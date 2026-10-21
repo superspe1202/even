@@ -53,7 +53,7 @@ export function isVideoLink(url: string): boolean {
  * 抓取與 AI 呼叫都在後端做，原因有二：金鑰不能放進 .ehpk（任何人都能解壓縮），
  * 以及 WebView 的 CORS 會擋掉絕大多數第三方網站。
  */
-export async function importFromUrl(url: string): Promise<Recipe> {
+export async function importFromUrl(url: string, onRetry?: (failed: number) => void): Promise<Recipe> {
   let parsed: URL
   try {
     parsed = new URL(url)
@@ -64,45 +64,84 @@ export async function importFromUrl(url: string): Promise<Recipe> {
     throw new ImportError(t('e.invalid_scheme'))
   }
   if (isVideoLink(url)) throw new ImportError(t('e.video_unsupported'))
-  const payload = await postToService('/extract', { url, lang: getLang() })
+  const payload = await postToService('/extract', { url, lang: getLang() }, onRetry)
   return normalizeRecipe(payload, url, 'web')
 }
 
+/** AI 這一步常要 10～20 秒，偶爾會失敗；失敗後自動再試，最多重試這麼多次。 */
+export const MAX_RETRIES = 3
+/** 單次呼叫的等待上限。超過就當成失敗、進入重試。 */
+const ATTEMPT_TIMEOUT_MS = 60_000
+
+/** 使用者輸入有問題、或內容本身不適用：重試也不會變好，直接告訴使用者。 */
+const PERMANENT_CODES = new Set([
+  'invalid_url', 'invalid_scheme', 'video_unsupported', 'not_html', 'page_empty',
+  'page_unreachable', 'not_recipe', 'not_food', 'query_empty', 'query_too_long', 'bad_request',
+])
+
 /**
- * 呼叫後端並把各種失敗翻成白話。
+ * 把各種失敗翻成白話，暫時性的失敗會自動重試。
+ *
+ * `onRetry(n)` 在第 n 次失敗、準備重試時呼叫（n 從 1 起算），讓畫面顯示「第 n 次沒成功」。
+ * 重試用完仍失敗，丟出 `e.retried_out`，不再把技術細節或原始錯誤丟給使用者。
  *
  * 後端回 `{ "error": "...", "code": "page_unreachable" }`：`code` 對到字典裡
- * 使用者語言的句子（後端不知道使用者看得懂什麼，也不該寫死一種語言）；
+ * 使用者語言的句子（後端不知道使用者看得懂什麼語言，也不該寫死一種語言）；
  * 認不得的代碼或舊版後端就依狀況給一句通用的，絕不把原始回應丟給使用者。
  */
-async function postToService(path: string, body: unknown): Promise<unknown> {
+async function postToService(
+  path: string,
+  body: unknown,
+  onRetry?: (failed: number) => void,
+): Promise<unknown> {
   if (!API_BASE) throw new ImportError(t('e.disabled'))
 
+  for (let attempt = 0; ; attempt++) {
+    const outcome = await attemptOnce(path, body)
+    if (outcome.ok) return outcome.payload
+    if (outcome.permanent) throw new ImportError(outcome.message)
+    if (attempt >= MAX_RETRIES) throw new ImportError(t('e.retried_out', { max: MAX_RETRIES }))
+    onRetry?.(attempt + 1)
+  }
+}
+
+type AttemptOutcome =
+  | { ok: true; payload: unknown }
+  | { ok: false; permanent: boolean; message: string }
+
+/** 只做一次呼叫，把結果分成「成功」「永久失敗（直接顯示）」「暫時失敗（可重試）」。 */
+async function attemptOnce(path: string, body: unknown): Promise<AttemptOutcome> {
   let response: Response
   try {
     response = await fetch(`${API_BASE}${path}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS),
     })
   } catch {
-    throw new ImportError(t('e.offline'))
+    return { ok: false, permanent: false, message: t('e.offline') }
   }
 
   if (!response.ok) {
     const code = await readErrorCode(response)
     const key = `e.${code}`
-    if (code && hasKey(key)) throw new ImportError(t(key))
-    if (response.status === 401 || response.status === 403) {
-      throw new ImportError(t('e.unauthorized'))
+    // 有明確的代碼就以代碼為準（例如 not_food 即使是 502 也不該重試）；
+    // 只有 generic 或認不得的代碼，才看 HTTP 狀態判斷是不是暫時性的。
+    if (code && code !== 'generic' && hasKey(key)) {
+      return { ok: false, permanent: PERMANENT_CODES.has(code), message: t(key) }
     }
-    throw new ImportError(t('e.generic'))
+    if (response.status === 401 || response.status === 403) {
+      return { ok: false, permanent: true, message: t('e.unauthorized') }
+    }
+    return { ok: false, permanent: false, message: t('e.generic') }
   }
 
   try {
-    return await response.json()
+    return { ok: true, payload: await response.json() }
   } catch {
-    throw new ImportError(t('e.generic'))
+    // 回應不是合法的 JSON：通常是 AI 中途出錯，值得再試一次。
+    return { ok: false, permanent: false, message: t('e.generic') }
   }
 }
 
@@ -134,11 +173,11 @@ export interface RecipeOption {
  * 這裡改成同樣的最終體驗：打幾個字、AI 生出食譜、使用者確認後才存檔，
  * 只是 AI 直接憑自己的知識回答，不會真的去查最新的網路內容。
  */
-export async function generateFromQuery(query: string): Promise<RecipeOption[]> {
+export async function generateFromQuery(query: string, onRetry?: (failed: number) => void): Promise<RecipeOption[]> {
   const trimmed = query.trim()
   if (!trimmed) throw new ImportError(t('e.query_empty'))
   if (trimmed.length > MAX_QUERY_LENGTH) throw new ImportError(t('e.query_too_long'))
-  const payload = await postToService('/generate', { query: trimmed, lang: getLang() })
+  const payload = await postToService('/generate', { query: trimmed, lang: getLang() }, onRetry)
   const raw = (payload as { options?: unknown } | null)?.options
   // 模型輸出不可信：缺步驟的那種做法直接略過，不要讓整次搜尋因為一種壞掉就失敗。
   const options = (Array.isArray(raw) ? raw : [])

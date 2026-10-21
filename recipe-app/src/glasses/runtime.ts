@@ -912,13 +912,16 @@ export class GlassesRuntime {
     content: string,
     brightness?: number,
   ): Promise<unknown> {
+    // 空字串在 protobuf 裡等同「沒有欄位」，眼鏡會保留舊文字（右欄空格冒出上一道菜的步驟、
+    // 響鈴「熄滅」畫面沒有真的變暗）。所以清空一律寫一個空白，確保每次都會覆寫。
+    const visible = content === '' ? ' ' : content
     this.writing = this.writing
       .then(() =>
         this.bridge.textContainerUpgrade(
           new TextContainerUpgrade({
             containerID,
             containerName,
-            content,
+            content: visible,
             ...(brightness === undefined ? {} : { textColor: brightness }),
           }),
         ),
