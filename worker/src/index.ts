@@ -432,7 +432,7 @@ async function runRecipePrompt(
   return recipe
 }
 
-const DEFAULT_WORKERS_AI_MODEL = '@cf/qwen/qwen3.8-27b'
+const DEFAULT_WORKERS_AI_MODEL = '@cf/meta/llama-4-scout-17b-16e-instruct'
 
 async function runWorkersAi(messages: ChatMessage[], env: Env): Promise<unknown> {
   const model = env.WORKERS_AI_MODEL || DEFAULT_WORKERS_AI_MODEL
