@@ -204,6 +204,7 @@ export const zh = {
   'u.se.detailed': '細節版',
   'u.se.briefHint': '重點步驟，快一點。',
   'u.se.detailedHint': '加上顏色、濃稠度等完成判斷，文字較多，等待較久。',
+  'u.se.cancel': '取消',
   'u.retry.note': '第 {n} 次沒成功，自動重試中（最多 {max} 次）',
   'u.se.hint': 'AI 會列出幾種常見做法，挑一種之後可以先看過、修改再存。',
   'u.se.heading': '{n} 種做法，點一張卡片挑選',

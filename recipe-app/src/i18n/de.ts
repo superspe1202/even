@@ -197,6 +197,7 @@ export const de: Record<MsgKey, string> = {
   "u.se.detailed": "Ausführlich",
   "u.se.briefHint": "Die wichtigsten Schritte, schneller.",
   "u.se.detailedHint": "Mit Farbe, Konsistenz und Garzeichen. Mehr Text, längere Wartezeit.",
+  "u.se.cancel": "Abbrechen",
   "u.retry.note": "Versuch {n} fehlgeschlagen. Wird automatisch wiederholt (bis zu {max}×).",
   "u.se.hint": "Die KI zeigt einige gängige Zubereitungen. Wähle eine aus, prüfe und ändere sie, dann speichere sie.",
   "u.se.heading": "{n} Variante, Karte antippen|{n} Varianten, Karte antippen",

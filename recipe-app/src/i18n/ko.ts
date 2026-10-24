@@ -197,6 +197,7 @@ export const ko: Record<MsgKey, string> = {
   "u.se.detailed": "자세히",
   "u.se.briefHint": "핵심 단계만, 더 빨라요.",
   "u.se.detailedHint": "색, 농도 등 완성 기준을 더해요. 글이 길어지고 기다림이 길어져요.",
+  "u.se.cancel": "취소",
   "u.retry.note": "{n}번째 시도가 실패했어요. 자동으로 다시 시도합니다(최대 {max}번).",
   "u.se.hint": "AI가 흔한 만드는 방법을 몇 가지 보여 줘요. 하나를 고른 뒤 확인하고 고쳐서 저장할 수 있어요.",
   "u.se.heading": "{n}가지 방법, 카드를 눌러 선택하세요",

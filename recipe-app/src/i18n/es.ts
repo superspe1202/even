@@ -197,6 +197,7 @@ export const es: Record<MsgKey, string> = {
   "u.se.detailed": "Detallado",
   "u.se.briefHint": "Pasos clave, más rápido.",
   "u.se.detailedHint": "Incluye color, textura y señales de punto. Texto más largo y más espera.",
+  "u.se.cancel": "Cancelar",
   "u.retry.note": "El intento {n} falló. Reintentando automáticamente (hasta {max} veces).",
   "u.se.hint": "La IA muestra algunas formas habituales de prepararlo. Elige una, revísala y edítala antes de guardarla.",
   "u.se.heading": "{n} versión, toca una tarjeta para elegir|{n} versiones, toca una tarjeta para elegir",

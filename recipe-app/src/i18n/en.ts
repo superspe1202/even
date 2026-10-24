@@ -197,6 +197,7 @@ export const en: Record<MsgKey, string> = {
   "u.se.detailed": "Detailed",
   "u.se.briefHint": "Key steps, faster.",
   "u.se.detailedHint": "Adds colour, texture and doneness cues. Longer text and a longer wait.",
+  "u.se.cancel": "Cancel",
   "u.retry.note": "Attempt {n} failed. Retrying automatically (up to {max} times).",
   "u.se.hint": "AI lists a few common ways to make it. Pick one, then review and edit it before saving.",
   "u.se.heading": "{n} way, tap a card to choose|{n} ways, tap a card to choose",

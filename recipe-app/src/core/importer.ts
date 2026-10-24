@@ -17,6 +17,9 @@ export const ONLINE_IMPORT_ENABLED = API_BASE !== ''
 /** 訊息會直接顯示給使用者看，一律寫白話，不出現狀態碼或技術名詞。 */
 export class ImportError extends Error {}
 
+/** 使用者主動取消搜尋：不是錯誤，不該顯示給使用者。 */
+export class CancelledError extends Error {}
+
 export function isYouTube(url: string): boolean {
   try {
     const host = new URL(url).hostname.replace(/^www\./, '')
@@ -93,11 +96,13 @@ async function postToService(
   path: string,
   body: unknown,
   onRetry?: (failed: number) => void,
+  signal?: AbortSignal,
 ): Promise<unknown> {
   if (!API_BASE) throw new ImportError(t('e.disabled'))
 
   for (let attempt = 0; ; attempt++) {
-    const outcome = await attemptOnce(path, body)
+    if (signal?.aborted) throw new CancelledError()
+    const outcome = await attemptOnce(path, body, signal)
     if (outcome.ok) return outcome.payload
     if (outcome.permanent) throw new ImportError(outcome.message)
     if (attempt >= MAX_RETRIES) throw new ImportError(t('e.retried_out', { max: MAX_RETRIES }))
@@ -110,16 +115,18 @@ type AttemptOutcome =
   | { ok: false; permanent: boolean; message: string }
 
 /** 只做一次呼叫，把結果分成「成功」「永久失敗（直接顯示）」「暫時失敗（可重試）」。 */
-async function attemptOnce(path: string, body: unknown): Promise<AttemptOutcome> {
+async function attemptOnce(path: string, body: unknown, signal?: AbortSignal): Promise<AttemptOutcome> {
+  const timeout = AbortSignal.timeout(ATTEMPT_TIMEOUT_MS)
   let response: Response
   try {
     response = await fetch(`${API_BASE}${path}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS),
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     })
   } catch {
+    if (signal?.aborted) throw new CancelledError()
     return { ok: false, permanent: false, message: t('e.offline') }
   }
 
@@ -140,6 +147,7 @@ async function attemptOnce(path: string, body: unknown): Promise<AttemptOutcome>
   try {
     return { ok: true, payload: await response.json() }
   } catch {
+    if (signal?.aborted) throw new CancelledError()
     // 回應不是合法的 JSON：通常是 AI 中途出錯，值得再試一次。
     return { ok: false, permanent: false, message: t('e.generic') }
   }
@@ -180,11 +188,12 @@ export async function generateFromQuery(
   query: string,
   onRetry?: (failed: number) => void,
   detail: SearchDetail = 'brief',
+  signal?: AbortSignal,
 ): Promise<RecipeOption[]> {
   const trimmed = query.trim()
   if (!trimmed) throw new ImportError(t('e.query_empty'))
   if (trimmed.length > MAX_QUERY_LENGTH) throw new ImportError(t('e.query_too_long'))
-  const payload = await postToService('/generate', { query: trimmed, lang: getLang(), detail }, onRetry)
+  const payload = await postToService('/generate', { query: trimmed, lang: getLang(), detail }, onRetry, signal)
   const raw = (payload as { options?: unknown } | null)?.options
   // 模型輸出不可信：缺步驟的那種做法直接略過，不要讓整次搜尋因為一種壞掉就失敗。
   const options = (Array.isArray(raw) ? raw : [])

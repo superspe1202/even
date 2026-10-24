@@ -14,6 +14,7 @@ import {
 } from '../core/catalog'
 import { newId } from '../core/id'
 import {
+  CancelledError,
   ImportError,
   ONLINE_IMPORT_ENABLED,
   type RecipeOption,
@@ -165,6 +166,8 @@ export class PhoneUi {
   private draftQuery = ''
   /** 搜尋時選的細節程度；預設精簡版。 */
   private searchDetail: SearchDetail = 'brief'
+  /** 進行中的搜尋可以取消；沒有搜尋時是 null。 */
+  private searchAbort: AbortController | null = null
   /** AI 搜尋給的幾種做法。挑了一種進編輯器後按返回，還能回來換另一種。 */
   private searchResults: RecipeOption[] = []
   private editorBaseline = ''
@@ -395,6 +398,8 @@ export class PhoneUi {
         return this.runImport()
       case 'run-search':
         return this.runSearch()
+      case 'cancel-search':
+        return this.searchAbort?.abort()
       case 'pick-option': {
         const option = this.searchResults[Number(id)]
         // 給編輯器一份複本：改到一半按返回再換別的做法，原本那份不會被改掉。
@@ -681,8 +686,10 @@ export class PhoneUi {
     this.retryNote = ''
     this.searchResults = []
     this.render()
+    const abort = new AbortController()
+    this.searchAbort = abort
     try {
-      this.searchResults = await generateFromQuery(query, failed => this.noteRetry(failed), this.searchDetail)
+      this.searchResults = await generateFromQuery(query, failed => this.noteRetry(failed), this.searchDetail, abort.signal)
       this.busy = false
       this.retryNote = ''
       // 先列出幾種做法讓使用者挑；挑了才進編輯器過目、確認後才存。
@@ -690,7 +697,15 @@ export class PhoneUi {
       // 結果在搜尋框下面，手機一個畫面放不下；捲過去讓使用者知道下面還有。
       this.root.querySelector('#options')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     } catch (err) {
+      // 取消不是錯誤：回到搜尋前的畫面，文字保留，不跳出錯誤訊息。
+      if (err instanceof CancelledError) {
+        this.busy = false
+        this.retryNote = ''
+        return this.render()
+      }
       this.fail(err instanceof ImportError ? err.message : t('e.generate_failed'))
+    } finally {
+      this.searchAbort = null
     }
   }
 
@@ -1395,9 +1410,11 @@ export class PhoneUi {
           </div>
           <p class="caption">${t(this.searchDetail === 'brief' ? 'u.se.briefHint' : 'u.se.detailedHint')}</p>
         </div>
-        <button class="${this.searchResults.length ? '' : 'primary'}" data-action="run-search" ${this.busy ? 'disabled' : ''}>
-          ${this.busy ? t('u.se.busy') : this.searchResults.length ? t('u.se.again') : t('u.se.run')}
-        </button>
+        ${this.busy
+          ? `<button data-action="cancel-search">${t('u.se.cancel')}</button>`
+          : `<button class="${this.searchResults.length ? '' : 'primary'}" data-action="run-search">
+          ${this.searchResults.length ? t('u.se.again') : t('u.se.run')}
+        </button>`}
         <p class="caption">
           ${this.busy ? esc(this.retryNote || t('u.se.wait')) : t('u.se.hint')}
         </p>
