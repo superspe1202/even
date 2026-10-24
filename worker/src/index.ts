@@ -254,6 +254,14 @@ function limits(lang: Lang, detail: Detail = 'detailed') {
 export type Detail = 'brief' | 'detailed'
 
 /** 精簡版的步驟規則：一步一個動作，附上火候、時間與一個簡短的完成判斷。 */
+/** 烘焙類（蛋糕、麵包、餅乾、派皮）的補充規則：火力換成烤箱溫度與烘烤時間，並補上預熱與冷卻。 */
+const BAKING_RULE = `If the dish is baked (cakes, bread, cookies, pastry), do not describe the heat only as low, medium or high. For each baking step give:
+- the oven temperature in °C, and when to preheat (for example "preheat to 170°C for 15 minutes before baking");
+- the baking time as a range, and where in the oven (middle rack) when it matters;
+- a doneness sign a home cook can check (a skewer comes out clean, the top is golden, the loaf sounds hollow when tapped);
+- a cooling step: how long to cool in the tin, then on a rack, before slicing or serving.
+Give ingredient amounts in grams when possible, and describe dough or batter texture in everyday words (for example "thick like yogurt" or "springs back when pressed"). Keep each step short when the output asks for brief steps.`
+
 const BRIEF_RULE = `Keep every step short and practical: one action per step, with its heat level, its time, and one short doneness cue (for example "until golden" or "until the sauce thickens"). Use exact amounts. Do not add colour comparisons or long descriptions.`
 
 /**
@@ -291,6 +299,8 @@ ${languageRule(lang)}
 
 ${DETAIL_RULE}
 
+${BAKING_RULE}
+
 Rules:
 - Output JSON only. No explanations and no markdown.
 - name: the recipe name, at most ${l.name} characters.
@@ -326,6 +336,8 @@ so the user can pick one to cook.
 ${languageRule(lang)}
 
 ${detail === 'brief' ? BRIEF_RULE : DETAIL_RULE}
+
+${BAKING_RULE}
 
 The versions must differ in substance, for example: the traditional classic, a quick and simple version,
 a regional or family variation, or a different main seasoning or cooking method (braised, stir-fried, rice cooker).
