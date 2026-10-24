@@ -173,11 +173,18 @@ export interface RecipeOption {
  * 這裡改成同樣的最終體驗：打幾個字、AI 生出食譜、使用者確認後才存檔，
  * 只是 AI 直接憑自己的知識回答，不會真的去查最新的網路內容。
  */
-export async function generateFromQuery(query: string, onRetry?: (failed: number) => void): Promise<RecipeOption[]> {
+/** 搜尋結果的細節程度：精簡版（預設，重點步驟、較快）或細節版（加上顏色、濃稠度等完成判斷）。 */
+export type SearchDetail = 'brief' | 'detailed'
+
+export async function generateFromQuery(
+  query: string,
+  onRetry?: (failed: number) => void,
+  detail: SearchDetail = 'brief',
+): Promise<RecipeOption[]> {
   const trimmed = query.trim()
   if (!trimmed) throw new ImportError(t('e.query_empty'))
   if (trimmed.length > MAX_QUERY_LENGTH) throw new ImportError(t('e.query_too_long'))
-  const payload = await postToService('/generate', { query: trimmed, lang: getLang() }, onRetry)
+  const payload = await postToService('/generate', { query: trimmed, lang: getLang(), detail }, onRetry)
   const raw = (payload as { options?: unknown } | null)?.options
   // 模型輸出不可信：缺步驟的那種做法直接略過，不要讓整次搜尋因為一種壞掉就失敗。
   const options = (Array.isArray(raw) ? raw : [])

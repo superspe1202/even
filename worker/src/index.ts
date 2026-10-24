@@ -90,7 +90,7 @@ const MAX_QUERY_LENGTH = 60
  * 「AI 產生 JSON → 前端 normalizeRecipe 收斂 → 進編輯器讓使用者過目」流程。
  */
 async function handleGenerate(request: Request, env: Env, origin: string): Promise<Response> {
-  let body: { query?: unknown; lang?: unknown }
+  let body: { query?: unknown; lang?: unknown; detail?: unknown }
   try {
     body = await request.json()
   } catch {
@@ -102,8 +102,10 @@ async function handleGenerate(request: Request, env: Env, origin: string): Promi
   if (!query) return failure('query_empty', 400, origin, lang)
   if (query.length > MAX_QUERY_LENGTH) return failure('query_too_long', 400, origin, lang)
 
+  // 沒帶或認不得的值一律當精簡版：省錢、快，細節版要使用者明確選才給。
+  const detail: Detail = body.detail === 'detailed' ? 'detailed' : 'brief'
   try {
-    const result = await generateRecipes(query, env, lang)
+    const result = await generateRecipes(query, env, lang, detail)
     return json(result, 200, origin)
   } catch (err) {
     console.error('generate 失敗：', err)
@@ -237,11 +239,22 @@ async function readCapped(response: Response): Promise<string> {
  * 依語言調整的長度上限。眼鏡內文欄約 392 px 寬：中日韓一個字佔一格，
  * 拉丁字母約半格，所以非 CJK 語言的字數上限放寬一倍左右。
  */
-function limits(lang: Lang) {
+function limits(lang: Lang, detail: Detail = 'detailed') {
+  if (detail === 'brief') {
+    return isCjk(lang)
+      ? { name: 10, label: 6, summary: 25, step: 60 }
+      : { name: 28, label: 16, summary: 70, step: 130 }
+  }
   return isCjk(lang)
     ? { name: 10, label: 6, summary: 25, step: 120 }
     : { name: 28, label: 16, summary: 70, step: 240 }
 }
+
+/** 搜尋時使用者選的細節程度：精簡版（預設）或細節版。 */
+export type Detail = 'brief' | 'detailed'
+
+/** 精簡版的步驟規則：一步一個動作，附上火候、時間與一個簡短的完成判斷。 */
+const BRIEF_RULE = `Keep every step short and practical: one action per step, with its heat level, its time, and one short doneness cue (for example "until golden" or "until the sauce thickens"). Use exact amounts. Do not add colour comparisons or long descriptions.`
 
 /**
  * 步驟要寫到「照著做就會成」：火候、時間、變色或熟成的判斷都要有。眼鏡會自動分頁，
@@ -302,8 +315,8 @@ async function extractRecipe(source: SourceContent, env: Env, lang: Lang): Promi
 /** 一次給幾種做法讓使用者挑。三種剛好一個畫面看得完，也不會讓回應慢太多。 */
 const OPTION_COUNT = 3
 
-function generatePrompt(lang: Lang): string {
-  const l = limits(lang)
+function generatePrompt(lang: Lang, detail: Detail = 'detailed'): string {
+  const l = limits(lang, detail)
   return `You are a cook who knows home cooking well, generating recipes for a smart-glasses recipe app.
 
 The user gives you only a dish name or a cooking keyword, with no source material. Using your own knowledge,
@@ -312,7 +325,7 @@ so the user can pick one to cook.
 
 ${languageRule(lang)}
 
-${DETAIL_RULE}
+${detail === 'brief' ? BRIEF_RULE : DETAIL_RULE}
 
 The versions must differ in substance, for example: the traditional classic, a quick and simple version,
 a regional or family variation, or a different main seasoning or cooking method (braised, stir-fried, rice cooker).
@@ -339,8 +352,8 @@ Output format:
 {"options":[{"label":"","summary":"","recipe":{"name":"","servings":2,"totalMinutes":30,"ingredients":[],"steps":[]}}]}`
 }
 
-async function generateRecipes(query: string, env: Env, lang: Lang): Promise<unknown> {
-  const payload = await runRecipePrompt(generatePrompt(lang), `Dish keyword: ${query}`, env)
+async function generateRecipes(query: string, env: Env, lang: Lang, detail: Detail = 'brief'): Promise<unknown> {
+  const payload = await runRecipePrompt(generatePrompt(lang, detail), `Dish keyword: ${query}`, env)
   const options = (payload as { options?: unknown } | null)?.options
   if (!Array.isArray(options) || !options.length) throw new Error('AI 沒有回傳任何做法')
   // 模型偶爾會多給；超過就截掉，手機畫面是照三種設計的。

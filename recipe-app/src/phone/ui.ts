@@ -21,6 +21,7 @@ import {
   MAX_RETRIES,
   generateFromQuery,
   importFromUrl,
+  type SearchDetail,
   isYouTube,
 } from '../core/importer'
 import type { ShoppingList } from '../core/shopping'
@@ -162,6 +163,8 @@ export class PhoneUi {
   /** 整頁重繪會清掉輸入框；失敗時要留著使用者打的字，不必重打。 */
   private draftUrl = ''
   private draftQuery = ''
+  /** 搜尋時選的細節程度；預設精簡版。 */
+  private searchDetail: SearchDetail = 'brief'
   /** AI 搜尋給的幾種做法。挑了一種進編輯器後按返回，還能回來換另一種。 */
   private searchResults: RecipeOption[] = []
   private editorBaseline = ''
@@ -382,6 +385,9 @@ export class PhoneUi {
         return this.toggleSet(this.query.categories, id as CatalogCategory)
       case 'toggle-region':
         return this.toggleSet(this.query.regions, id as Region)
+      case 'set-detail':
+        this.searchDetail = id === 'detailed' ? 'detailed' : 'brief'
+        return this.render()
       case 'clear-filters':
         this.query = emptyQuery()
         return this.render()
@@ -671,7 +677,7 @@ export class PhoneUi {
     this.searchResults = []
     this.render()
     try {
-      this.searchResults = await generateFromQuery(query, failed => this.noteRetry(failed))
+      this.searchResults = await generateFromQuery(query, failed => this.noteRetry(failed), this.searchDetail)
       this.busy = false
       this.retryNote = ''
       // 先列出幾種做法讓使用者挑；挑了才進編輯器過目、確認後才存。
@@ -1375,6 +1381,14 @@ export class PhoneUi {
           <input id="query" type="text" placeholder="${esc(t('u.se.ph'))}" maxlength="60" value="${esc(this.draftQuery)}" ${
             this.busy ? 'disabled' : ''
           } />
+        </div>
+        <div>
+          <div class="label" style="margin-bottom:6px">${t('u.se.detailLabel')}</div>
+          <div class="chips">
+            <button class="chip${this.searchDetail === 'brief' ? ' on' : ''}" data-action="set-detail" data-id="brief" ${this.busy ? 'disabled' : ''}>${t('u.se.brief')}</button>
+            <button class="chip${this.searchDetail === 'detailed' ? ' on' : ''}" data-action="set-detail" data-id="detailed" ${this.busy ? 'disabled' : ''}>${t('u.se.detailed')}</button>
+          </div>
+          <p class="caption">${t(this.searchDetail === 'brief' ? 'u.se.briefHint' : 'u.se.detailedHint')}</p>
         </div>
         <button class="${this.searchResults.length ? '' : 'primary'}" data-action="run-search" ${this.busy ? 'disabled' : ''}>
           ${this.busy ? t('u.se.busy') : this.searchResults.length ? t('u.se.again') : t('u.se.run')}
