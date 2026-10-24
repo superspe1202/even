@@ -332,7 +332,8 @@ export class PhoneUi {
     }
     const action = el.dataset.action!
     const id = el.dataset.id
-    if (this.busy && action !== 'back') return
+    // 忙碌中只放行返回與取消搜尋，其他按鈕都先擋住。
+    if (this.busy && action !== 'back' && action !== 'cancel-search') return
 
     switch (action) {
       case 'back':
