@@ -442,7 +442,7 @@ async function runWorkersAi(messages: ChatMessage[], env: Env): Promise<unknown>
   // 模型偶爾會吐出不合法的 JSON（例如引號沒跳脫），同一個請求重試一次通常就成功。
   let lastError: unknown
   for (let attempt = 0; attempt < 2; attempt++) {
-    const result = (await run(model, { messages, max_tokens: 6000, temperature: 0.2 })) as {
+    const result = (await run(model, { messages, max_tokens: 4000, temperature: 0.2 })) as {
       response?: unknown
     }
     const response = result?.response
