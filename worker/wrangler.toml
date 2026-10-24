@@ -14,7 +14,7 @@ AI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
 # 用你帳號實際可用的型號 ID 取代。列出清單：
 #   curl -s "https://generativelanguage.googleapis.com/v1beta/openai/models" \
 #     -H "authorization: Bearer $GEMINI_API_KEY" | grep '"id"'
-AI_MODEL = "gemini-3-flash"
+AI_MODEL = "gemini-2.5-flash"
 ALLOW_ORIGIN = "*"
 # 設成 "off" 可停用 response_format（程式在被拒絕時也會自動退回重試）。
 AI_JSON_MODE = "json_object"
