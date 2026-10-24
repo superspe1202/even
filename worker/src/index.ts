@@ -157,7 +157,8 @@ async function handleTranscribe(request: Request, env: Env, origin: string): Pro
 /** 只有明確標成可給使用者看的錯誤才回具體代碼，其餘一律換成通用的 `generic`。Workers AI 額度用完（4006）另外回 `quota`。 */
 function errorCode(err: unknown): ErrorCode {
   if (err instanceof UserFacingError) return err.code
-  if (err instanceof Error && /AiError: 4006/.test(err.message)) return 'quota'
+  // Workers AI 的錯誤訊息以錯誤代碼開頭（例如 "4006: ..."），額度用完是 4006。
+  if (err instanceof Error && /(^|\D)4006(\D|$)/.test(err.message)) return 'quota'
   return 'generic'
 }
 
