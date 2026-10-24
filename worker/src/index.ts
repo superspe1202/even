@@ -291,7 +291,7 @@ const BAKING_RULE = `If the dish is baked (cakes, bread, cookies, pastry), do no
 - the baking time as a range, and where in the oven (middle rack) when it matters;
 - a doneness sign a home cook can check (a skewer comes out clean, the top is golden, the loaf sounds hollow when tapped);
 - a cooling step: how long to cool in the tin, then on a rack, before slicing or serving.
-Give ingredient amounts in grams when possible, and describe dough or batter texture in everyday words (for example "thick like yogurt" or "springs back when pressed"). Keep each step short when the output asks for brief steps.`
+Write all of this in the output language required above, not in English, and use that language's words for top and bottom heat. Give ingredient amounts in grams when possible, and describe dough or batter texture in everyday words (for example "thick like yogurt" or "springs back when pressed"). Keep each step short when the output asks for brief steps.`
 
 const BRIEF_RULE = `Keep every step short and practical: one action per step, with its heat level, its time, and one short doneness cue (for example "until golden" or "until the sauce thickens"). Use exact amounts. Do not add colour comparisons or long descriptions.`
 
