@@ -1,0 +1,667 @@
+{
+  "_about": "AI-prepared reference for common baked goods and desserts by country. Oven settings are typical starting points for a home oven, NOT verified against recipes. confidence: 'typical' = widely used; 'estimate' = less certain, test first. steam: true means use steam or a hot water tray for the first part of baking. Temperatures in °C, time in minutes.",
+  "countries": [
+    {
+      "lang": "zh",
+      "country": "TW",
+      "items": [
+        {
+          "name": "戚風蛋糕",
+          "type": "sponge_or_chiffon",
+          "top": 170,
+          "bottom": 160,
+          "minutes": [
+            25,
+            30
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "typical"
+        },
+        {
+          "name": "海綿蛋糕",
+          "type": "sponge_or_chiffon",
+          "top": 170,
+          "bottom": 160,
+          "minutes": [
+            20,
+            25
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "typical"
+        },
+        {
+          "name": "奶油餅乾",
+          "type": "cookie",
+          "top": 170,
+          "bottom": 170,
+          "minutes": [
+            12,
+            15
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "typical"
+        },
+        {
+          "name": "鳳梨酥",
+          "type": "cookie",
+          "top": 180,
+          "bottom": 170,
+          "minutes": [
+            15,
+            20
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "typical"
+        },
+        {
+          "name": "蛋塔",
+          "type": "pastry",
+          "top": 200,
+          "bottom": 180,
+          "minutes": [
+            15,
+            20
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "typical"
+        },
+        {
+          "name": "古早味蛋糕",
+          "type": "sponge_or_chiffon",
+          "top": 170,
+          "bottom": 160,
+          "minutes": [
+            35,
+            45
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "estimate"
+        }
+      ]
+    },
+    {
+      "lang": "en",
+      "country": "US",
+      "items": [
+        {
+          "name": "Chocolate chip cookies",
+          "type": "cookie",
+          "top": 180,
+          "bottom": 180,
+          "minutes": [
+            9,
+            12
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "typical"
+        },
+        {
+          "name": "Banana bread",
+          "type": "soft_bread",
+          "top": 175,
+          "bottom": 165,
+          "minutes": [
+            55,
+            65
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "typical"
+        },
+        {
+          "name": "Apple pie",
+          "type": "pastry",
+          "top": 200,
+          "bottom": 190,
+          "minutes": [
+            45,
+            55
+          ],
+          "rack": "lower-middle",
+          "steam": false,
+          "confidence": "typical"
+        },
+        {
+          "name": "Cheesecake",
+          "type": "sponge_or_chiffon",
+          "top": 160,
+          "bottom": 160,
+          "minutes": [
+            55,
+            70
+          ],
+          "rack": "middle",
+          "steam": true,
+          "confidence": "typical"
+        },
+        {
+          "name": "Pumpkin pie",
+          "type": "pastry",
+          "top": 190,
+          "bottom": 180,
+          "minutes": [
+            50,
+            60
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "typical"
+        },
+        {
+          "name": "Brownies",
+          "type": "soft_bread",
+          "top": 175,
+          "bottom": 175,
+          "minutes": [
+            25,
+            30
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "typical"
+        }
+      ]
+    },
+    {
+      "lang": "de",
+      "country": "DE",
+      "items": [
+        {
+          "name": "Käsekuchen",
+          "type": "sponge_or_chiffon",
+          "top": 170,
+          "bottom": 170,
+          "minutes": [
+            60,
+            75
+          ],
+          "rack": "middle",
+          "steam": true,
+          "confidence": "typical"
+        },
+        {
+          "name": "Apfelstrudel",
+          "type": "pastry",
+          "top": 200,
+          "bottom": 190,
+          "minutes": [
+            25,
+            35
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "typical"
+        },
+        {
+          "name": "Lebkuchen",
+          "type": "cookie",
+          "top": 170,
+          "bottom": 170,
+          "minutes": [
+            12,
+            18
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "typical"
+        },
+        {
+          "name": "Butterkuchen",
+          "type": "soft_bread",
+          "top": 190,
+          "bottom": 180,
+          "minutes": [
+            25,
+            35
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "typical"
+        },
+        {
+          "name": "Schwarzwälder Kirschtorte",
+          "type": "sponge_or_chiffon",
+          "top": 175,
+          "bottom": 165,
+          "minutes": [
+            25,
+            35
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "estimate"
+        },
+        {
+          "name": "Brezel",
+          "type": "crusty_bread",
+          "top": 230,
+          "bottom": 220,
+          "minutes": [
+            12,
+            18
+          ],
+          "rack": "middle",
+          "steam": true,
+          "confidence": "typical"
+        }
+      ]
+    },
+    {
+      "lang": "fr",
+      "country": "FR",
+      "items": [
+        {
+          "name": "Baguette",
+          "type": "crusty_bread",
+          "top": 240,
+          "bottom": 230,
+          "minutes": [
+            20,
+            25
+          ],
+          "rack": "middle",
+          "steam": true,
+          "confidence": "typical"
+        },
+        {
+          "name": "Tarte aux pommes",
+          "type": "pastry",
+          "top": 190,
+          "bottom": 180,
+          "minutes": [
+            35,
+            45
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "typical"
+        },
+        {
+          "name": "Financier",
+          "type": "sponge_or_chiffon",
+          "top": 180,
+          "bottom": 170,
+          "minutes": [
+            12,
+            15
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "typical"
+        },
+        {
+          "name": "Madeleine",
+          "type": "sponge_or_chiffon",
+          "top": 200,
+          "bottom": 190,
+          "minutes": [
+            8,
+            12
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "typical"
+        },
+        {
+          "name": "Clafoutis",
+          "type": "sponge_or_chiffon",
+          "top": 180,
+          "bottom": 170,
+          "minutes": [
+            35,
+            45
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "typical"
+        },
+        {
+          "name": "Canelé",
+          "type": "pastry",
+          "top": 250,
+          "bottom": 200,
+          "minutes": [
+            15,
+            15
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "estimate"
+        }
+      ]
+    },
+    {
+      "lang": "es",
+      "country": "ES",
+      "items": [
+        {
+          "name": "Tarta de Santiago",
+          "type": "sponge_or_chiffon",
+          "top": 180,
+          "bottom": 170,
+          "minutes": [
+            25,
+            35
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "typical"
+        },
+        {
+          "name": "Churros",
+          "type": "fried",
+          "top": null,
+          "bottom": null,
+          "minutes": null,
+          "rack": null,
+          "steam": false,
+          "confidence": "n/a",
+          "note": "fried, not baked"
+        },
+        {
+          "name": "Flan",
+          "type": "custard",
+          "top": 160,
+          "bottom": 160,
+          "minutes": [
+            45,
+            60
+          ],
+          "rack": "middle",
+          "steam": true,
+          "confidence": "typical"
+        },
+        {
+          "name": "Polvorones",
+          "type": "cookie",
+          "top": 170,
+          "bottom": 170,
+          "minutes": [
+            12,
+            15
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "typical"
+        },
+        {
+          "name": "Magdalenas",
+          "type": "sponge_or_chiffon",
+          "top": 190,
+          "bottom": 180,
+          "minutes": [
+            15,
+            20
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "typical"
+        },
+        {
+          "name": "Torrija",
+          "type": "fried",
+          "top": null,
+          "bottom": null,
+          "minutes": null,
+          "rack": null,
+          "steam": false,
+          "confidence": "n/a",
+          "note": "fried, not baked"
+        }
+      ]
+    },
+    {
+      "lang": "it",
+      "country": "IT",
+      "items": [
+        {
+          "name": "Tiramisù",
+          "type": "no_bake",
+          "top": null,
+          "bottom": null,
+          "minutes": null,
+          "rack": null,
+          "steam": false,
+          "confidence": "n/a",
+          "note": "no oven"
+        },
+        {
+          "name": "Panettone",
+          "type": "soft_bread",
+          "top": 180,
+          "bottom": 170,
+          "minutes": [
+            45,
+            55
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "typical"
+        },
+        {
+          "name": "Biscotti di Prato (cantucci)",
+          "type": "cookie",
+          "top": 170,
+          "bottom": 170,
+          "minutes": [
+            25,
+            30
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "typical"
+        },
+        {
+          "name": "Crostata",
+          "type": "pastry",
+          "top": 190,
+          "bottom": 180,
+          "minutes": [
+            30,
+            40
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "typical"
+        },
+        {
+          "name": "Pan di Spagna",
+          "type": "sponge_or_chiffon",
+          "top": 175,
+          "bottom": 165,
+          "minutes": [
+            25,
+            35
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "typical"
+        },
+        {
+          "name": "Sfogliatella",
+          "type": "pastry",
+          "top": 220,
+          "bottom": 200,
+          "minutes": [
+            20,
+            25
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "estimate"
+        }
+      ]
+    },
+    {
+      "lang": "ja",
+      "country": "JP",
+      "items": [
+        {
+          "name": "スフレチーズケーキ",
+          "type": "sponge_or_chiffon",
+          "top": 160,
+          "bottom": 150,
+          "minutes": [
+            45,
+            55
+          ],
+          "rack": "middle",
+          "steam": true,
+          "confidence": "typical"
+        },
+        {
+          "name": "どら焼き（生地）",
+          "type": "pastry",
+          "top": 200,
+          "bottom": 190,
+          "minutes": [
+            6,
+            8
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "typical"
+        },
+        {
+          "name": "カステラ",
+          "type": "sponge_or_chiffon",
+          "top": 170,
+          "bottom": 160,
+          "minutes": [
+            40,
+            50
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "typical"
+        },
+        {
+          "name": "チョコチップクッキー",
+          "type": "cookie",
+          "top": 170,
+          "bottom": 170,
+          "minutes": [
+            10,
+            12
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "typical"
+        },
+        {
+          "name": "メロンパン",
+          "type": "soft_bread",
+          "top": 180,
+          "bottom": 170,
+          "minutes": [
+            12,
+            15
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "typical"
+        },
+        {
+          "name": "バームクーヘン",
+          "type": "sponge_or_chiffon",
+          "top": 200,
+          "bottom": 170,
+          "minutes": [
+            40,
+            50
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "estimate"
+        }
+      ]
+    },
+    {
+      "lang": "ko",
+      "country": "KR",
+      "items": [
+        {
+          "name": "카스텔라",
+          "type": "sponge_or_chiffon",
+          "top": 170,
+          "bottom": 160,
+          "minutes": [
+            40,
+            50
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "typical"
+        },
+        {
+          "name": "소보로빵",
+          "type": "soft_bread",
+          "top": 180,
+          "bottom": 170,
+          "minutes": [
+            15,
+            18
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "typical"
+        },
+        {
+          "name": "호떡",
+          "type": "fried",
+          "top": null,
+          "bottom": null,
+          "minutes": null,
+          "rack": null,
+          "steam": false,
+          "confidence": "n/a",
+          "note": "pan-fried, not baked"
+        },
+        {
+          "name": "약과",
+          "type": "fried",
+          "top": null,
+          "bottom": null,
+          "minutes": null,
+          "rack": null,
+          "steam": false,
+          "confidence": "n/a",
+          "note": "fried, not baked"
+        },
+        {
+          "name": "치즈 타르트",
+          "type": "pastry",
+          "top": 180,
+          "bottom": 170,
+          "minutes": [
+            25,
+            30
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "typical"
+        },
+        {
+          "name": "계란빵",
+          "type": "soft_bread",
+          "top": 180,
+          "bottom": 170,
+          "minutes": [
+            12,
+            15
+          ],
+          "rack": "middle",
+          "steam": false,
+          "confidence": "estimate"
+        }
+      ]
+    }
+  ]
+}
