@@ -474,7 +474,8 @@ function parseJsonLoose(raw: string): unknown {
         // 落到下面統一報錯
       }
     }
-    throw new Error('AI 回傳的內容不是有效的 JSON')
+    // 把模型實際回的內容前段放進錯誤訊息，`wrangler tail` 看得到，使用者端仍只看到通用錯誤。
+    throw new Error(`AI 回傳的內容不是有效的 JSON：${trimmed.slice(0, 300)}`)
   }
 }
 
