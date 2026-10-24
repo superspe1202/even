@@ -20,12 +20,14 @@ function normalize(text: string): string {
   return text.trim().toLowerCase()
 }
 
-/** 查詢字串等於菜名或別名（不分大小寫）才算命中；部分相符不算，避免「蛋糕」誤中戚風。 */
+/** 查詢字串等於菜名或別名（不分大小寫）才算命中；部分相符不算，避免「蛋糕」誤中戚風。不烤的菜（confidence 為 n/a）不算命中。 */
 export function findBakingReference(query: string): BakingReference | null {
   const q = normalize(query)
   if (!q) return null
   return (
-    ENTRIES.find((e) => normalize(e.name) === q || e.aliases.some((a) => normalize(a) === q)) ?? null
+    ENTRIES.find(
+      (e) => e.confidence !== 'n/a' && (normalize(e.name) === q || e.aliases.some((a) => normalize(a) === q)),
+    ) ?? null
   )
 }
 

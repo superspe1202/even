@@ -17,7 +17,7 @@ const DISHES = [
   { q: '起司蛋糕', baked: true, expectSource: 'reference' },
   { q: '瑪德蓮', baked: true, expectSource: 'reference' },
   { q: '費南雪', baked: true, expectSource: 'reference' },
-  { q: '黑森林蛋糕', baked: true, expectSource: 'reference' },
+  { q: '黑森林蛋糕', baked: true, expectSource: 'estimate' },
   { q: '提拉米蘇', baked: false, expectSource: 'model' },
   { q: '番茄炒蛋', baked: false, expectSource: 'model' },
   { q: '麻婆豆腐', baked: false, expectSource: 'model' },
