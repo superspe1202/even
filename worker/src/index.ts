@@ -389,7 +389,7 @@ async function runRecipePrompt(
   return recipe
 }
 
-const DEFAULT_WORKERS_AI_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast'
+const DEFAULT_WORKERS_AI_MODEL = '@cf/mistralai/mistral-small-3.1-24b-instruct'
 
 async function runWorkersAi(messages: ChatMessage[], env: Env): Promise<unknown> {
   const model = env.WORKERS_AI_MODEL || DEFAULT_WORKERS_AI_MODEL
