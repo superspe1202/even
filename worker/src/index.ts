@@ -252,6 +252,8 @@ const DETAIL_RULE = `Make every step specific enough to follow without guessing:
 - State how long, and give a visual or sensory sign that it is done: colour change, texture, smell, sound, or doneness (for example "the edges turn golden and the oil starts to bubble around the pan").
 - For aging, fermenting, marinating, resting or cooling steps, state the duration, the temperature or place, and how to tell it is ready.
 - Name the exact ingredient and amount used in that step when it matters.
+- Describe doneness the way a home cook would see and feel it, with concrete everyday comparisons: the colour (for example "golden brown like toast", "amber like dark tea", "a light caramel"), the thickness (for example "the sauce coats the back of a spoon and drips slowly, like warm honey", "as runny as porridge", "stiff enough that the spatula leaves a trail"), the texture ("no longer wet on the surface", "springy when pressed"), and the sound or smell ("the sizzle quiets down", "a sweet, nutty smell").
+- Write in plain, conversational sentences a home cook would say out loud. Avoid abstract jargon unless it is a common cooking term.
 - If you are not sure of an exact time or temperature, give a sensible range and a visual cue instead of inventing a precise number.`
 
 /** 提示詞一律用英文寫（模型最穩），再明講輸出語言；輸出裡的欄位名稱維持英文不翻。 */
