@@ -396,13 +396,23 @@ async function runWorkersAi(messages: ChatMessage[], env: Env): Promise<unknown>
   // 型別只列得出 Cloudflare 當下已知的模型；這裡的型號來自設定檔，所以放寬型別。
   const run = env.AI!.run.bind(env.AI) as (model: string, input: unknown) => Promise<unknown>
   // Workers AI 預設只輸出 256 個 token，三種完整食譜遠遠不夠，一定要調高。
-  const result = (await run(model, { messages, max_tokens: 6000, temperature: 0.2 })) as {
-    response?: unknown
+  // 模型偶爾會吐出不合法的 JSON（例如引號沒跳脫），同一個請求重試一次通常就成功。
+  let lastError: unknown
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const result = (await run(model, { messages, max_tokens: 6000, temperature: 0.2 })) as {
+      response?: unknown
+    }
+    const response = result?.response
+    if (response && typeof response === 'object') return response
+    if (typeof response !== 'string' || !response.trim()) throw new Error('Workers AI 沒有回傳內容')
+    try {
+      return parseJsonLoose(response)
+    } catch (err) {
+      lastError = err
+      console.warn(`Workers AI 第 ${attempt + 1} 次回傳無法解析，${attempt === 0 ? '重試一次' : '放棄'}`)
+    }
   }
-  const response = result?.response
-  if (response && typeof response === 'object') return response
-  if (typeof response !== 'string' || !response.trim()) throw new Error('Workers AI 沒有回傳內容')
-  return parseJsonLoose(response)
+  throw lastError
 }
 
 async function runExternal(messages: ChatMessage[], env: Env): Promise<unknown> {
@@ -475,7 +485,7 @@ function parseJsonLoose(raw: string): unknown {
       }
     }
     // 把模型實際回的內容前段放進錯誤訊息，`wrangler tail` 看得到，使用者端仍只看到通用錯誤。
-    throw new Error(`AI 回傳的內容不是有效的 JSON：${trimmed.slice(0, 300)}`)
+    throw new Error(`AI 回傳的內容不是有效的 JSON：${trimmed.slice(0, 300)} ……（結尾）${trimmed.slice(-200)}`)
   }
 }
 
