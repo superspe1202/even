@@ -201,6 +201,7 @@ export const de: Record<MsgKey, string> = {
   "u.retry.note": "Versuch {n} fehlgeschlagen. Wird automatisch wiederholt (bis zu {max}×).",
   "u.se.hint": "Die KI zeigt einige gängige Zubereitungen. Wähle eine aus, prüfe und ändere sie, dann speichere sie.",
   "u.se.heading": "{n} Variante, Karte antippen|{n} Varianten, Karte antippen",
+  "u.se.ovenEstimate": "Ofeneinstellungen sind Schätzwerte; zuerst eine kleine Probe backen.",
   "u.se.pick": "Dieses Rezept nehmen",
   "u.se.ingredients": "Zutaten: {list}",
   "u.se.ingredientsMore": "Zutaten: {list} und {n} weitere",

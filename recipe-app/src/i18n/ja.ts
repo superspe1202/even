@@ -201,6 +201,7 @@ export const ja: Record<MsgKey, string> = {
   "u.retry.note": "{n}回目は失敗しました。自動で再試行します（最大{max}回）。",
   "u.se.hint": "AIがよくある作り方をいくつか出します。1つ選んで、確認・編集してから保存できます。",
   "u.se.heading": "{n}通りの作り方。カードをタップして選びます",
+  "u.se.ovenEstimate": "オーブンの設定は目安です。まず少量で試してください。",
   "u.se.pick": "この作り方にする",
   "u.se.ingredients": "材料：{list}",
   "u.se.ingredientsMore": "材料：{list} ほか{n}品",

@@ -205,12 +205,13 @@ export async function generateFromQuery(
   onRetry?: (failed: number) => void,
   detail: SearchDetail = 'brief',
   signal?: AbortSignal,
-): Promise<RecipeOption[]> {
+): Promise<{ options: RecipeOption[]; ovenSource: OvenSource }> {
   const trimmed = query.trim()
   if (!trimmed) throw new ImportError(t('e.query_empty'))
   if (trimmed.length > MAX_QUERY_LENGTH) throw new ImportError(t('e.query_too_long'))
   const payload = await postToService('/generate', { query: trimmed, lang: getLang(), detail }, onRetry, signal)
   const raw = (payload as { options?: unknown } | null)?.options
+  const ovenSource = asOvenSource((payload as { ovenSource?: unknown } | null)?.ovenSource)
   // 模型輸出不可信：缺步驟的那種做法直接略過，不要讓整次搜尋因為一種壞掉就失敗。
   const options = (Array.isArray(raw) ? raw : [])
     .map((entry, n): RecipeOption | null => {
@@ -227,7 +228,14 @@ export async function generateFromQuery(
     })
     .filter((x): x is RecipeOption => x !== null)
   if (!options.length) throw new ImportError(t('e.no_options'))
-  return options
+  return { options, ovenSource }
+}
+
+/** 烤箱設定來源：reference＝已核對的參考、estimate＝參考但標為估計、model＝模型自行判斷。 */
+export type OvenSource = 'reference' | 'estimate' | 'model'
+
+function asOvenSource(value: unknown): OvenSource {
+  return value === 'reference' || value === 'estimate' ? value : 'model'
 }
 
 function asString(value: unknown): string {

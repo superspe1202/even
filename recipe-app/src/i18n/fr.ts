@@ -201,6 +201,7 @@ export const fr: Record<MsgKey, string> = {
   "u.retry.note": "Tentative {n} échouée. Nouvel essai automatique (jusqu’à {max} fois).",
   "u.se.hint": "L'IA propose quelques façons courantes de le préparer. Choisissez-en une, puis relisez-la et modifiez-la avant de l'enregistrer.",
   "u.se.heading": "{n} version, touchez une carte pour choisir|{n} versions, touchez une carte pour choisir",
+  "u.se.ovenEstimate": "Les réglages du four sont estimés ; faites d’abord un essai.",
   "u.se.pick": "Utiliser cette recette",
   "u.se.ingredients": "Ingrédients : {list}",
   "u.se.ingredientsMore": "Ingrédients : {list} et {n} autres",

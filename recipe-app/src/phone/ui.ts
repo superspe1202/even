@@ -22,6 +22,7 @@ import {
   MAX_RETRIES,
   generateFromQuery,
   importFromUrl,
+  type OvenSource,
   type SearchDetail,
   isYouTube,
 } from '../core/importer'
@@ -120,6 +121,9 @@ const esc = (s: string) =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!,
   )
 
+/** 步驟文字裡出現烤箱或溫度的字眼，就視為烘焙做法（涵蓋各語言常見的說法）。 */
+const OVEN_WORD = /°C|℃|烤|烘|預熱|oven|preheat|Ofen|four|horno|forno|オーブン|오븐/i
+
 const DIFFICULTIES: Difficulty[] = ['easy', 'medium', 'hard']
 const SORT_KEYS: SortKey[] = ['difficulty', 'time', 'name']
 
@@ -170,6 +174,8 @@ export class PhoneUi {
   private searchAbort: AbortController | null = null
   /** AI 搜尋給的幾種做法。挑了一種進編輯器後按返回，還能回來換另一種。 */
   private searchResults: RecipeOption[] = []
+  /** 目前搜尋結果的烤箱設定來源；不是參考來源時，烘焙做法要加上「估計」提示。 */
+  private searchOvenSource: OvenSource = 'model'
   private editorBaseline = ''
   /** 設定頁目前選的語言（`auto` 是跟著手機）。進設定頁時從儲存讀進來。 */
   private languageChoice: LangSetting = 'auto'
@@ -690,7 +696,9 @@ export class PhoneUi {
     const abort = new AbortController()
     this.searchAbort = abort
     try {
-      this.searchResults = await generateFromQuery(query, failed => this.noteRetry(failed), this.searchDetail, abort.signal)
+      const found = await generateFromQuery(query, failed => this.noteRetry(failed), this.searchDetail, abort.signal)
+      this.searchResults = found.options
+      this.searchOvenSource = found.ovenSource
       this.busy = false
       this.retryNote = ''
       // 先列出幾種做法讓使用者挑；挑了才進編輯器過目、確認後才存。
@@ -1463,8 +1471,12 @@ export class PhoneUi {
         </div>`
       })
       .join('')
+    // 只有烘焙做法才要提醒：看步驟裡有沒有烤箱或溫度的字眼。
+    const baked = this.searchResults.some(o => o.recipe.steps.some(s => OVEN_WORD.test(s.text)))
+    const estimate = baked && this.searchOvenSource !== 'reference' ? `<p class="caption">${t('u.se.ovenEstimate')}</p>` : ''
     return `
       <h2 id="options">${t('u.se.heading', { n: this.searchResults.length })}</h2>
+      ${estimate}
       ${cards}`
   }
 

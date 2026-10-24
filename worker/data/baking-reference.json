@@ -16,7 +16,12 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "戚風",
+            "chiffon cake",
+            "chiffon"
+          ]
         },
         {
           "name": "海綿蛋糕",
@@ -29,7 +34,11 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "海綿",
+            "sponge cake"
+          ]
         },
         {
           "name": "奶油餅乾",
@@ -42,7 +51,11 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "奶油餅",
+            "butter cookies"
+          ]
         },
         {
           "name": "鳳梨酥",
@@ -55,7 +68,10 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "pineapple cake"
+          ]
         },
         {
           "name": "蛋塔",
@@ -68,7 +84,12 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "葡式蛋塔",
+            "egg tart",
+            "蛋撻"
+          ]
         },
         {
           "name": "古早味蛋糕",
@@ -81,7 +102,11 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "estimate"
+          "confidence": "estimate",
+          "aliases": [
+            "古早味",
+            "taiwanese sponge cake"
+          ]
         }
       ]
     },
@@ -100,7 +125,12 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "巧克力豆餅乾",
+            "巧克力餅乾",
+            "chocolate chip cookie"
+          ]
         },
         {
           "name": "Banana bread",
@@ -113,7 +143,11 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "香蕉麵包",
+            "香蕉蛋糕"
+          ]
         },
         {
           "name": "Apple pie",
@@ -126,7 +160,10 @@
           ],
           "rack": "lower-middle",
           "steam": false,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "蘋果派"
+          ]
         },
         {
           "name": "Cheesecake",
@@ -139,7 +176,13 @@
           ],
           "rack": "middle",
           "steam": true,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "起司蛋糕",
+            "芝士蛋糕",
+            "乳酪蛋糕",
+            "cheese cake"
+          ]
         },
         {
           "name": "Pumpkin pie",
@@ -152,7 +195,10 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "南瓜派"
+          ]
         },
         {
           "name": "Brownies",
@@ -165,7 +211,11 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "布朗尼",
+            "brownie"
+          ]
         }
       ]
     },
@@ -184,7 +234,12 @@
           ],
           "rack": "middle",
           "steam": true,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "起司蛋糕",
+            "德式起司蛋糕",
+            "cheesecake"
+          ]
         },
         {
           "name": "Apfelstrudel",
@@ -197,7 +252,12 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "蘋果strudel",
+            "蘋果卷",
+            "蘋果酥捲"
+          ]
         },
         {
           "name": "Lebkuchen",
@@ -210,7 +270,11 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "薑餅",
+            "Lebkuchen"
+          ]
         },
         {
           "name": "Butterkuchen",
@@ -223,7 +287,11 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "奶油蛋糕",
+            "butter cake"
+          ]
         },
         {
           "name": "Schwarzwälder Kirschtorte",
@@ -236,7 +304,11 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "estimate"
+          "confidence": "estimate",
+          "aliases": [
+            "黑森林蛋糕",
+            "black forest cake"
+          ]
         },
         {
           "name": "Brezel",
@@ -249,7 +321,12 @@
           ],
           "rack": "middle",
           "steam": true,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "椒鹽卷餅",
+            "pretzel",
+            "Brezel"
+          ]
         }
       ]
     },
@@ -268,7 +345,15 @@
           ],
           "rack": "middle",
           "steam": true,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "法國麵包",
+            "法國長棍",
+            "法棍",
+            "法式長棍",
+            "French bread",
+            "法國麵包"
+          ]
         },
         {
           "name": "Tarte aux pommes",
@@ -281,7 +366,12 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "法式蘋果塔",
+            "蘋果塔",
+            "apple tart"
+          ]
         },
         {
           "name": "Financier",
@@ -294,7 +384,11 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "費南雪",
+            "financier"
+          ]
         },
         {
           "name": "Madeleine",
@@ -307,7 +401,12 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "瑪德蓮",
+            "瑪德琳",
+            "madeleine"
+          ]
         },
         {
           "name": "Clafoutis",
@@ -320,20 +419,33 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "克拉芙緹",
+            "clafoutis"
+          ]
         },
         {
           "name": "Canelé",
           "type": "pastry",
-          "top": 250,
-          "bottom": 200,
+          "top": 230,
+          "bottom": 180,
           "minutes": [
-            15,
-            15
+            50,
+            60
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "estimate"
+          "confidence": "estimate",
+          "aliases": [
+            "可麗露",
+            "卡努雷",
+            "カヌレ",
+            "까눌레",
+            "canele",
+            "canelé"
+          ],
+          "note": "two stages: 230°C for about 18 minutes, then 180°C for about 40 minutes"
         }
       ]
     },
@@ -352,7 +464,11 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "聖地亞哥杏仁蛋糕",
+            "Santiago cake"
+          ]
         },
         {
           "name": "Churros",
@@ -363,7 +479,11 @@
           "rack": null,
           "steam": false,
           "confidence": "n/a",
-          "note": "fried, not baked"
+          "note": "fried, not baked",
+          "aliases": [
+            "吉拿棒",
+            "churro"
+          ]
         },
         {
           "name": "Flan",
@@ -376,7 +496,12 @@
           ],
           "rack": "middle",
           "steam": true,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "焦糖布丁",
+            "布丁",
+            "flan"
+          ]
         },
         {
           "name": "Polvorones",
@@ -389,7 +514,11 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "聖誕酥餅",
+            "polvorón"
+          ]
         },
         {
           "name": "Magdalenas",
@@ -402,7 +531,11 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "瑪德蓮蛋糕",
+            "magdalena"
+          ]
         },
         {
           "name": "Torrija",
@@ -413,7 +546,11 @@
           "rack": null,
           "steam": false,
           "confidence": "n/a",
-          "note": "fried, not baked"
+          "note": "fried, not baked",
+          "aliases": [
+            "西班牙法式吐司",
+            "torrijas"
+          ]
         }
       ]
     },
@@ -430,7 +567,11 @@
           "rack": null,
           "steam": false,
           "confidence": "n/a",
-          "note": "no oven"
+          "note": "no oven",
+          "aliases": [
+            "提拉米蘇",
+            "tiramisu"
+          ]
         },
         {
           "name": "Panettone",
@@ -443,7 +584,12 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "潘娜朵妮",
+            "聖誕麵包",
+            "panettone"
+          ]
         },
         {
           "name": "Biscotti di Prato (cantucci)",
@@ -456,7 +602,12 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "義大利杏仁餅",
+            "cantucci",
+            "杏仁脆餅"
+          ]
         },
         {
           "name": "Crostata",
@@ -469,7 +620,11 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "義式果醬塔",
+            "crostata"
+          ]
         },
         {
           "name": "Pan di Spagna",
@@ -482,7 +637,11 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "海綿蛋糕義式",
+            "Pan di Spagna"
+          ]
         },
         {
           "name": "Sfogliatella",
@@ -495,7 +654,11 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "estimate"
+          "confidence": "estimate",
+          "aliases": [
+            "貝殼酥",
+            "sfogliatella"
+          ]
         }
       ]
     },
@@ -514,7 +677,12 @@
           ],
           "rack": "middle",
           "steam": true,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "舒芙蕾起司蛋糕",
+            "日式舒芙蕾",
+            "souffle cheesecake"
+          ]
         },
         {
           "name": "どら焼き（生地）",
@@ -527,7 +695,11 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "銅鑼燒",
+            "dorayaki"
+          ]
         },
         {
           "name": "カステラ",
@@ -540,7 +712,12 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "長崎蛋糕",
+            "castella",
+            "卡斯提拉"
+          ]
         },
         {
           "name": "チョコチップクッキー",
@@ -553,7 +730,10 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "日式巧克力餅乾"
+          ]
         },
         {
           "name": "メロンパン",
@@ -566,7 +746,11 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "菠蘿麵包",
+            "melon pan"
+          ]
         },
         {
           "name": "バームクーヘン",
@@ -579,7 +763,11 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "estimate"
+          "confidence": "estimate",
+          "aliases": [
+            "年輪蛋糕",
+            "baumkuchen"
+          ]
         }
       ]
     },
@@ -598,7 +786,11 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "韓式雞蛋糕",
+            "카스텔라"
+          ]
         },
         {
           "name": "소보로빵",
@@ -611,7 +803,11 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "菠蘿麵包韓式",
+            "soboro bread"
+          ]
         },
         {
           "name": "호떡",
@@ -622,7 +818,8 @@
           "rack": null,
           "steam": false,
           "confidence": "n/a",
-          "note": "pan-fried, not baked"
+          "note": "pan-fried, not baked",
+          "aliases": []
         },
         {
           "name": "약과",
@@ -633,7 +830,8 @@
           "rack": null,
           "steam": false,
           "confidence": "n/a",
-          "note": "fried, not baked"
+          "note": "fried, not baked",
+          "aliases": []
         },
         {
           "name": "치즈 타르트",
@@ -646,7 +844,11 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "typical"
+          "confidence": "typical",
+          "aliases": [
+            "韓式起司塔",
+            "cheese tart"
+          ]
         },
         {
           "name": "계란빵",
@@ -659,7 +861,11 @@
           ],
           "rack": "middle",
           "steam": false,
-          "confidence": "estimate"
+          "confidence": "estimate",
+          "aliases": [
+            "雞蛋麵包",
+            "gyeran bbang"
+          ]
         }
       ]
     }

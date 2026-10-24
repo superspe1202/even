@@ -7,6 +7,7 @@ import {
   type ErrorCode,
   type Lang,
 } from './errors'
+import { findBakingReference, referencePrompt } from './bakingReference'
 import { extractTitle, htmlToText } from './readable'
 
 export interface Env {
@@ -402,11 +403,16 @@ Output format:
 }
 
 async function generateRecipes(query: string, env: Env, lang: Lang, detail: Detail = 'brief'): Promise<unknown> {
-  const payload = await runRecipePrompt(generatePrompt(lang, detail), `Dish keyword: ${query}`, env)
+  // 常見烘焙菜先查參考表，命中就把已整理好的烤箱設定交給模型，不讓它每次自己猜。
+  const ref = findBakingReference(query)
+  const system = ref ? `${generatePrompt(lang, detail)}\n\n${referencePrompt(ref)}` : generatePrompt(lang, detail)
+  const payload = await runRecipePrompt(system, `Dish keyword: ${query}`, env)
   const options = (payload as { options?: unknown } | null)?.options
   if (!Array.isArray(options) || !options.length) throw new Error('AI 沒有回傳任何做法')
   // 模型偶爾會多給；超過就截掉，手機畫面是照三種設計的。
-  return { options: options.slice(0, OPTION_COUNT) }
+  // ovenSource：reference＝命中已核對的參考、estimate＝命中但標為估計、model＝沒命中，烤箱設定由模型自行判斷。
+  const ovenSource = !ref ? 'model' : ref.confidence === 'typical' ? 'reference' : 'estimate'
+  return { options: options.slice(0, OPTION_COUNT), ovenSource }
 }
 
 /** `/extract` 與 `/generate` 共用的呼叫、重試與解析邏輯，差別只在 system prompt 與使用者內容。 */

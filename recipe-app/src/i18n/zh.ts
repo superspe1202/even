@@ -208,6 +208,7 @@ export const zh = {
   'u.retry.note': '第 {n} 次沒成功，自動重試中（最多 {max} 次）',
   'u.se.hint': 'AI 會列出幾種常見做法，挑一種之後可以先看過、修改再存。',
   'u.se.heading': '{n} 種做法，點一張卡片挑選',
+  'u.se.ovenEstimate': '烤箱溫度與時間為估計值，建議先試做一次',
   'u.se.pick': '用這個做法',
   'u.se.ingredients': '食材：{list}',
   'u.se.ingredientsMore': '食材：{list} 等 {n} 樣',
