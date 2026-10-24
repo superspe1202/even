@@ -79,7 +79,7 @@ const ATTEMPT_TIMEOUT_MS = 60_000
 /** 使用者輸入有問題、或內容本身不適用：重試也不會變好，直接告訴使用者。 */
 const PERMANENT_CODES = new Set([
   'invalid_url', 'invalid_scheme', 'video_unsupported', 'not_html', 'page_empty',
-  'page_unreachable', 'not_recipe', 'not_food', 'query_empty', 'query_too_long', 'bad_request',
+  'page_unreachable', 'not_recipe', 'not_food', 'query_empty', 'query_too_long', 'bad_request', 'quota',
 ])
 
 /**

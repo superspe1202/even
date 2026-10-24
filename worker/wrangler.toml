@@ -24,3 +24,8 @@ WORKERS_AI_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct"
 # Cloudflare Workers AI：模型跑在自己的 Cloudflare 帳號裡，沒有外部 API 金鑰。
 [ai]
 binding = "AI"
+
+# 搜尋結果快取（KV）。ID 不是機密，只是命名空間編號。
+[[kv_namespaces]]
+binding = "RECIPE_CACHE"
+id = "2d5bdbd05c8f4188809fd0b9261c73ec"

@@ -93,6 +93,7 @@ export const fr: Record<MsgKey, string> = {
   "e.page_empty": "Cette page ne contient presque aucun texte. Elle demande peut-être une connexion.",
   "e.not_recipe": "Ceci ne ressemble pas à une recette.",
   "e.not_food": "Ceci ne ressemble pas au nom d'un plat.",
+  "e.quota": "Le quota de recherche IA du jour est épuisé. Réessayez demain.",
   "e.bad_request": "La requête n'est pas valide.",
   "e.paste_url": "Collez d'abord une adresse web.",
   "e.read_failed": "Lecture impossible. Réessayez.",

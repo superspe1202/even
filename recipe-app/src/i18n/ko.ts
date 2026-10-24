@@ -93,6 +93,7 @@ export const ko: Record<MsgKey, string> = {
   "e.page_empty": "이 페이지에는 글이 거의 없어요. 로그인이 필요할 수 있어요.",
   "e.not_recipe": "레시피 내용이 아닌 것 같아요.",
   "e.not_food": "요리 이름이 아닌 것 같아요.",
+  "e.quota": "오늘의 AI 검색 한도를 모두 사용했어요. 내일 다시 시도해 주세요.",
   "e.bad_request": "요청 형식이 올바르지 않아요.",
   "e.paste_url": "먼저 웹 주소를 붙여 넣어 주세요.",
   "e.read_failed": "읽어 오지 못했어요. 다시 시도해 주세요.",

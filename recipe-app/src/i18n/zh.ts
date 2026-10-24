@@ -100,6 +100,7 @@ export const zh = {
   'e.page_empty': '這個網頁幾乎沒有文字，可能要登入才看得到。',
   'e.not_recipe': '這不是食譜內容。',
   'e.not_food': '這看起來不是料理名稱。',
+  'e.quota': '今天的 AI 搜尋額度已用完，請明天再試。',
   'e.bad_request': '請求格式不對。',
   'e.paste_url': '請先貼上網址。',
   'e.read_failed': '讀取失敗，請稍後再試一次。',

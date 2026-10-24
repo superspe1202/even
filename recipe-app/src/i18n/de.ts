@@ -93,6 +93,7 @@ export const de: Record<MsgKey, string> = {
   "e.page_empty": "Diese Seite enthält kaum Text. Vielleicht braucht sie eine Anmeldung.",
   "e.not_recipe": "Das sieht nicht nach einem Rezept aus.",
   "e.not_food": "Das sieht nicht nach dem Namen eines Gerichts aus.",
+  "e.quota": "Das heutige KI-Suchkontingent ist aufgebraucht. Bitte morgen erneut versuchen.",
   "e.bad_request": "Die Anfrage war ungültig.",
   "e.paste_url": "Füge zuerst eine Webadresse ein.",
   "e.read_failed": "Das konnte nicht gelesen werden. Bitte versuche es erneut.",

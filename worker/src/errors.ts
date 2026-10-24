@@ -10,6 +10,7 @@
  * 回給 App 的是通用的 `generic`，不把狀態碼或內部訊息丟給使用者。
  */
 export type ErrorCode =
+  | 'quota'
   | 'video_unsupported'
   | 'invalid_url'
   | 'invalid_scheme'
@@ -32,6 +33,7 @@ export class UserFacingError extends Error {
 }
 
 const MESSAGES: Record<ErrorCode, { zh: string; en: string }> = {
+  quota: { zh: '今天的 AI 搜尋額度已用完，請明天再試。', en: 'Today’s AI search quota is used up. Please try again tomorrow.' },
   video_unsupported: { zh: '目前不接受影片分析，請貼上食譜的網頁。', en: 'Video links are not supported yet. Please paste a recipe web page.' },
   invalid_url: { zh: '網址看起來不完整，請確認有整段複製。', en: 'The link looks incomplete. Please copy the whole address.' },
   invalid_scheme: { zh: '請貼上網頁連結（http 或 https 開頭）。', en: 'Please paste a web link (starting with http or https).' },

@@ -24,6 +24,8 @@ export interface Env {
   WORKERS_AI_MODEL?: string
   /** 設成 'off' 可停用 response_format；預設會帶，被拒絕時自動退回重試。 */
   AI_JSON_MODE?: string
+  /** 搜尋結果快取（wrangler.toml 的 [[kv_namespaces]]）。沒綁定時就不快取，照常運作。 */
+  RECIPE_CACHE?: KVNamespace
   /** 可選的共用權杖，擋掉隨手打到這個網址的請求。見 README 的說明與限制。 */
   APP_TOKEN?: string
   ALLOW_ORIGIN?: string
@@ -109,8 +111,15 @@ async function handleGenerate(request: Request, env: Env, origin: string): Promi
 
   // 沒帶或認不得的值一律當精簡版：省錢、快，細節版要使用者明確選才給。
   const detail: Detail = body.detail === 'detailed' ? 'detailed' : 'brief'
+  const cacheKey = generateCacheKey(query, lang, detail)
   try {
+    // 同一個菜名、語言、詳細度已經算過就直接回快取，不再花 AI 額度。
+    const cached = env.RECIPE_CACHE ? await env.RECIPE_CACHE.get(cacheKey, 'json') : null
+    if (cached) return json(cached, 200, origin)
     const result = await generateRecipes(query, env, lang, detail)
+    if (env.RECIPE_CACHE) {
+      await env.RECIPE_CACHE.put(cacheKey, JSON.stringify(result), { expirationTtl: CACHE_TTL_SECONDS })
+    }
     return json(result, 200, origin)
   } catch (err) {
     console.error('generate 失敗：', err)
@@ -145,9 +154,22 @@ async function handleTranscribe(request: Request, env: Env, origin: string): Pro
   }
 }
 
-/** 只有明確標成可給使用者看的錯誤才回具體代碼，其餘一律換成通用的 `generic`。 */
+/** 只有明確標成可給使用者看的錯誤才回具體代碼，其餘一律換成通用的 `generic`。Workers AI 額度用完（4006）另外回 `quota`。 */
 function errorCode(err: unknown): ErrorCode {
-  return err instanceof UserFacingError ? err.code : 'generic'
+  if (err instanceof UserFacingError) return err.code
+  if (err instanceof Error && /AiError: 4006/.test(err.message)) return 'quota'
+  return 'generic'
+}
+
+/**
+ * 快取的版本號。改了 prompt 或參考表的內容就加一，舊的快取會自然失效。
+ * 快取只存成功的結果；失敗（含額度用完）不存。
+ */
+const PROMPT_VERSION = 'v1'
+const CACHE_TTL_SECONDS = 60 * 60 * 24 * 30
+
+function generateCacheKey(query: string, lang: Lang, detail: Detail): string {
+  return `gen:${PROMPT_VERSION}:${lang}:${detail}:${query.toLowerCase()}`
 }
 
 /** `{ error, code }`：App 看 `code` 翻成使用者語言；`error` 只是後備。 */
