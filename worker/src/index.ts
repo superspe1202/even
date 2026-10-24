@@ -167,7 +167,7 @@ function errorCode(err: unknown): ErrorCode {
  * 快取只存成功的結果；失敗（含額度用完）不存。
  */
 const PROMPT_VERSION = 'v1'
-const CACHE_TTL_SECONDS = 60 * 60 * 24 * 30
+const CACHE_TTL_SECONDS = 60 * 60 * 24 * 300
 
 function generateCacheKey(query: string, lang: Lang, detail: Detail): string {
   return `gen:${PROMPT_VERSION}:${lang}:${detail}:${query.toLowerCase()}`
