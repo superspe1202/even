@@ -508,6 +508,11 @@ export class PhoneUi {
 
   private onInput(event: Event) {
     const el = event.target as HTMLInputElement | HTMLTextAreaElement
+    // 搜尋框沒有 data-field；同步草稿，切換精簡／細節會重畫，文字才不會消失。
+    if (el.id === 'query') {
+      this.draftQuery = el.value
+      return
+    }
     const field = el.dataset.field
     if (!field) return
 
