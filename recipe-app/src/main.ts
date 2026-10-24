@@ -4,6 +4,7 @@ import { RecipeStore } from './core/storage'
 import type { RunningTimer } from './core/timer'
 import { difficultyLabel, type Recipe } from './core/types'
 import { GlassesRuntime } from './glasses/runtime'
+import { VoiceControl } from './glasses/voice'
 import {
   detectLang,
   onLangChange,
@@ -40,6 +41,7 @@ onBackgroundRestore(BG_KEY, saved => {
 })
 
 let runtime: GlassesRuntime | null = null
+let voice: VoiceControl | null = null
 /** 目前顯示在眼鏡上的食譜 id；採購清單畫面時是 null。 */
 let cookingId: string | null = null
 /**
@@ -105,7 +107,10 @@ async function boot() {
     onTimersChange: timers => void store.saveTimers(timers),
     // 眼鏡上的任何變化（翻頁、換菜、計時、響鈴）都讓手機畫面跟著更新。
     onStateChange: () => ui?.syncFromGlasses(),
-    onRawEvent: event => ui?.logGlassesEvent(event),
+    onRawEvent: event => {
+      ui?.logGlassesEvent(event)
+      voice?.feedEvent(event)
+    },
   })
 
   const settings = await store.getSettings()
@@ -115,6 +120,11 @@ async function boot() {
   if (!ok) {
     root.innerHTML = `<div class="error">${t('e.glasses_boot')}</div>`
     return
+  }
+  // 語音指令（原型）：只有網址帶 ?voice=1 才開麥克風。正式版要改成手機上的開關並加上說明。
+  if (new URLSearchParams(location.search).has('voice')) {
+    voice = new VoiceControl(bridge, cmd => void runtime?.runVoiceCommand(cmd))
+    void voice.start()
   }
 
   ui = new PhoneUi(root, store, {
