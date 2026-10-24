@@ -291,6 +291,12 @@ const BAKING_RULE = `If the dish is baked (cakes, bread, cookies, pastry), do no
 - the baking time as a range, and where in the oven (middle rack) when it matters;
 - a doneness sign a home cook can check (a skewer comes out clean, the top is golden, the loaf sounds hollow when tapped);
 - a cooling step: how long to cool in the tin, then on a rack, before slicing or serving.
+Reference settings by type; pick the closest type and stay inside its range:
+- sponge or chiffon cake: top 160-175°C, bottom 150-170°C, 25-35 minutes, middle rack
+- crusty bread: 220-250°C, steam or a hot water tray for the first 10 minutes, 20-30 minutes
+- soft bread or buns: 180-200°C, 15-25 minutes
+- cookies, tarts, pastry: 160-190°C, 12-25 minutes
+If the dish fits none of these, still give a setting, but mark the oven temperature and time as an estimate to test first.
 Write all of this in the output language required above, not in English, and use that language's words for top and bottom heat. Give ingredient amounts in grams when possible, and describe dough or batter texture in everyday words (for example "thick like yogurt" or "springs back when pressed"). Keep each step short when the output asks for brief steps.`
 
 const BRIEF_RULE = `Keep every step short and practical: one action per step, with its heat level, its time, and one short doneness cue (for example "until golden" or "until the sauce thickens"). Use exact amounts. Do not add colour comparisons or long descriptions.`
