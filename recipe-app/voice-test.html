@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>語音測試</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: -apple-system, system-ui, sans-serif; margin: 0; padding: 16px; background: #fff; color: #111; }
+    @media (prefers-color-scheme: dark) { body { background: #111; color: #eee; } }
+    h1 { font-size: 20px; }
+    h2 { font-size: 16px; margin-top: 24px; }
+    button { font-size: 16px; padding: 12px 16px; margin: 6px 0; width: 100%; }
+    pre { white-space: pre-wrap; background: rgba(127,127,127,.12); padding: 10px; border-radius: 8px; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h1>語音測試（原型）</h1>
+  <p>用來確認兩件事：手機的 Web Speech API 能不能在 Even App 裡用；眼鏡麥克風收到的音訊，speakerRole 是什麼。</p>
+
+  <h2>A. 手機麥克風 + Web Speech API</h2>
+  <button id="webspeech">開始辨識（說一句話，例如「下一步」）</button>
+  <pre id="webspeech-out">尚未測試</pre>
+
+  <h2>B. 眼鏡麥克風（錄 15 秒）</h2>
+  <button id="glasses">開始錄 15 秒（請對著眼鏡說話，也請旁人說話）</button>
+  <pre id="glasses-out">尚未測試</pre>
+
+  <script type="module">
+    import {
+      waitForEvenAppBridge,
+      CreateStartUpPageContainer,
+      TextContainerProperty,
+      AudioInputSource,
+    } from '@evenrealities/even_hub_sdk'
+
+    const show = (id, text) => { document.getElementById(id).textContent = text }
+
+    // A. Web Speech API on the phone.
+    document.getElementById('webspeech').addEventListener('click', () => {
+      const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition
+      if (!Recognition) {
+        show('webspeech-out', 'SpeechRecognition 不存在：這個 WebView 不支援 Web Speech API。')
+        return
+      }
+      const rec = new Recognition()
+      rec.lang = 'zh-TW'
+      rec.interimResults = true
+      rec.maxAlternatives = 1
+      const lines = [`支援：是（${rec.constructor.name}）`]
+      rec.onresult = (e) => {
+        const last = e.results[e.results.length - 1]
+        lines.push(`${last.isFinal ? '最終' : '暫時'}：${last[0].transcript}`)
+        show('webspeech-out', lines.join('\n'))
+      }
+      rec.onerror = (e) => { lines.push(`錯誤：${e.error}`); show('webspeech-out', lines.join('\n')) }
+      rec.onend = () => { lines.push('結束'); show('webspeech-out', lines.join('\n')) }
+      try {
+        rec.start()
+        show('webspeech-out', lines.join('\n') + '\n開始聆聽…')
+      } catch (err) {
+        show('webspeech-out', `無法啟動：${err}`)
+      }
+    })
+
+    // B. Glasses microphone through the Even bridge.
+    document.getElementById('glasses').addEventListener('click', async () => {
+      const lines = []
+      const log = (s) => { lines.push(s); show('glasses-out', lines.join('\n')) }
+      try {
+        const bridge = await waitForEvenAppBridge()
+        // Startup page first: without it, the glasses mic does not open.
+        const ok = await bridge.createStartUpPageContainer(new CreateStartUpPageContainer({
+          containerTotalNum: 1,
+          textObject: [new TextContainerProperty({
+            xPosition: 0, yPosition: 0, width: 576, height: 288, borderWidth: 0, borderColor: 5,
+            paddingLength: 4, containerID: 1, containerName: 'voice', content: '語音測試中…',
+            isEventCapture: 1, textColor: 5,
+          })],
+        }))
+        log(`startup page: ${JSON.stringify(ok)}`)
+
+        const stats = { chunks: 0, bytes: 0, roles: {}, sources: {}, firstKeys: null, firstLen: 0, firstHead: '' }
+        const unsubscribe = bridge.onEvenHubEvent((event) => {
+          const audio = event?.audioEvent
+          if (!audio) return
+          stats.chunks++
+          const pcm = audio.audioPcm
+          const len = pcm?.length ?? 0
+          stats.bytes += len
+          const role = String(audio.speakerRole)
+          stats.roles[role] = (stats.roles[role] ?? 0) + 1
+          const src = String(audio.source)
+          stats.sources[src] = (stats.sources[src] ?? 0) + 1
+          if (stats.firstKeys === null) {
+            stats.firstKeys = Object.keys(audio).join(', ')
+            stats.firstLen = len
+            stats.firstHead = Array.from(pcm.slice(0, 8)).join(' ')
+          }
+        })
+
+        const opened = await bridge.audioControl(true, AudioInputSource.Glasses)
+        log(`audioControl open: ${opened}`)
+        await new Promise((r) => setTimeout(r, 15000))
+        await bridge.audioControl(false)
+        unsubscribe()
+
+        log(`chunks: ${stats.chunks}, total bytes: ${stats.bytes}`)
+        log(`speakerRole counts: ${JSON.stringify(stats.roles)}`)
+        log(`source counts: ${JSON.stringify(stats.sources)}`)
+        log(`first chunk keys: ${stats.firstKeys}`)
+        log(`first chunk length: ${stats.firstLen}, first 8 bytes: ${stats.firstHead}`)
+      } catch (err) {
+        log(`錯誤：${err?.message ?? err}`)
+      }
+    })
+  </script>
+</body>
+</html>
