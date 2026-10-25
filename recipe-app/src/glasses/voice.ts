@@ -1,8 +1,9 @@
 /**
  * 語音指令（原型）：眼鏡麥克風 → 原始 PCM → Worker 轉文字 → 比對關鍵字 → 和手勢做同樣的事。
  *
- * 音訊格式是假設值（16 kHz、單聲道、16 位元、小端序）。實機上要用眼鏡實測，
- * 格式不同就改下面的常數。辨識結果只會是四個指令之一，其他話一律忽略。
+ * 音訊格式已由官方 Device APIs 文件確認：PCM 16 kHz、16 位元有號、小端序、單聲道。
+ * 文件沒寫每個區塊的大小與送出頻率，要用眼鏡實測。辨識結果只會是四個指令之一，其他話一律忽略。
+ * 使用前要先執行 createStartUpPageContainer，否則眼鏡麥克風打不開。
  */
 import { AudioInputSource } from '@evenrealities/even_hub_sdk'
 import { transcribeAudio } from '../core/importer'
@@ -123,7 +124,10 @@ export class VoiceControl {
 
   /** 收到 audioEvent 時呼叫。辨識中來的音訊直接丟掉，免得排隊越積越久。 */
   feedEvent(event: unknown): void {
-    const raw = (event as { audioEvent?: { audioPcm?: unknown } } | null)?.audioEvent?.audioPcm
+    const audio = (event as { audioEvent?: { audioPcm?: unknown; speakerRole?: unknown } } | null)?.audioEvent
+    // 只收使用者自己講的話：SDK 會標註說話人（self / other / unknown），別人講的一律丟掉。
+    if (audio?.speakerRole !== 'self') return
+    const raw = audio.audioPcm
     if (raw === undefined) return
     const bytes = toPcmBytes(raw)
     if (!bytes) return
