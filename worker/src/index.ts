@@ -44,7 +44,9 @@ export default {
     }
     const url = new URL(request.url)
     if (url.pathname === '/health') {
-      return json({ ok: true }, 200, origin)
+      // colo / country：Worker 實際在哪個機房執行，用來判斷 Gemini 的地區限制。
+      const cf = (request as Request & { cf?: { colo?: string; country?: string } }).cf
+      return json({ ok: true, colo: cf?.colo ?? null, country: cf?.country ?? null }, 200, origin)
     }
     if (
       request.method !== 'POST' ||

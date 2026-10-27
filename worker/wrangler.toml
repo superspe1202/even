@@ -29,3 +29,7 @@ binding = "AI"
 [[kv_namespaces]]
 binding = "RECIPE_CACHE"
 id = "2d5bdbd05c8f4188809fd0b9261c73ec"
+
+# 讓 Cloudflare 把 Worker 放在離外部 AI 服務較近的機房，避免 Gemini 的地區限制。
+[placement]
+mode = "smart"
