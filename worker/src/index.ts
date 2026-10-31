@@ -48,10 +48,7 @@ export default {
       const cf = (request as Request & { cf?: { colo?: string; country?: string } }).cf
       return json({ ok: true, colo: cf?.colo ?? null, country: cf?.country ?? null }, 200, origin)
     }
-    if (
-      request.method !== 'POST' ||
-      (url.pathname !== '/extract' && url.pathname !== '/generate' && url.pathname !== '/transcribe')
-    ) {
+    if (request.method !== 'POST' || (url.pathname !== '/extract' && url.pathname !== '/generate')) {
       return failure('not_found', 404, origin, 'en')
     }
     if (env.APP_TOKEN && request.headers.get('x-app-token') !== env.APP_TOKEN) {
@@ -59,7 +56,6 @@ export default {
     }
 
     if (url.pathname === '/generate') return handleGenerate(request, env, origin)
-    if (url.pathname === '/transcribe') return handleTranscribe(request, env, origin)
     return handleExtract(request, env, origin)
   },
 }
@@ -126,33 +122,6 @@ async function handleGenerate(request: Request, env: Env, origin: string): Promi
   } catch (err) {
     console.error('generate 失敗：', err)
     return failure(errorCode(err), 502, origin, lang)
-  }
-}
-
-/** 語音指令用：一段短音訊（WAV，base64）轉成文字。單次請求，不重試，失敗就讓 APP 略過這一段。 */
-const WHISPER_MODEL = '@cf/openai/whisper'
-/** 約 12 秒 16 kHz 單聲道 16 位元音訊；更長的不收，避免被拿去大量轉錄。 */
-const MAX_AUDIO_BYTES = 400_000
-
-async function handleTranscribe(request: Request, env: Env, origin: string): Promise<Response> {
-  if (!env.AI) return failure('generic', 502, origin, 'en')
-  let body: { audio?: unknown }
-  try {
-    body = await request.json()
-  } catch {
-    return failure('bad_request', 400, origin, 'en')
-  }
-  if (typeof body.audio !== 'string' || !body.audio) return failure('bad_request', 400, origin, 'en')
-  const bytes = Uint8Array.from(atob(body.audio), c => c.charCodeAt(0))
-  if (bytes.length === 0 || bytes.length > MAX_AUDIO_BYTES) return failure('bad_request', 400, origin, 'en')
-  try {
-    const run = env.AI.run.bind(env.AI) as (model: string, input: unknown) => Promise<unknown>
-    const result = (await run(WHISPER_MODEL, { audio: Array.from(bytes) })) as { text?: unknown }
-    const text = typeof result?.text === 'string' ? result.text.trim() : ''
-    return json({ text }, 200, origin)
-  } catch (err) {
-    console.error('transcribe 失敗：', err)
-    return failure('generic', 502, origin, 'en')
   }
 }
 

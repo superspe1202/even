@@ -184,22 +184,6 @@ export interface RecipeOption {
 /** 搜尋結果的細節程度：精簡版（預設，重點步驟、較快）或細節版（加上顏色、濃稠度等完成判斷）。 */
 export type SearchDetail = 'brief' | 'detailed'
 
-/** 語音指令用：一段 WAV（base64 之前的位元組）轉成文字。單次請求、不重試、失敗回空字串。 */
-export async function transcribeAudio(wav: Uint8Array): Promise<string> {
-  if (!API_BASE) return ''
-  let binary = ''
-  for (let i = 0; i < wav.length; i += 0x8000) binary += String.fromCharCode(...wav.subarray(i, i + 0x8000))
-  const response = await fetch(`${API_BASE}/transcribe`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ audio: btoa(binary) }),
-    signal: AbortSignal.timeout(15_000),
-  })
-  if (!response.ok) return ''
-  const payload = (await response.json()) as { text?: unknown }
-  return typeof payload.text === 'string' ? payload.text : ''
-}
-
 export async function generateFromQuery(
   query: string,
   onRetry?: (failed: number) => void,

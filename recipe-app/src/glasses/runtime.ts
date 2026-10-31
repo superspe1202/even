@@ -12,7 +12,6 @@ import {
   type RunningTimer,
 } from '../core/timer'
 import type { Recipe } from '../core/types'
-import type { VoiceCommand } from './voice'
 import { t } from '../i18n'
 import {
   alarmFooter,
@@ -826,18 +825,6 @@ export class GlassesRuntime {
    * 按掉目前這個；後面還有同時到期的就接著響下一個，都響完才回到原畫面。
    * 手機上的「知道了」也呼叫這個。
    */
-  /** 語音指令：和對應的手勢做同樣的事；響鈴、確認關閉、選單開著時不處理。 */
-  async runVoiceCommand(cmd: VoiceCommand): Promise<void> {
-    if (this.alarms.length || this.confirmClose || this.menu) return
-    if (cmd === 'next') return this.go(1)
-    if (cmd === 'back') return this.go(-1)
-    if (cmd === 'menu') return this.openMenu()
-    const view = this.view
-    if (this.recipe && view?.kind === 'step' && this.startableSeconds() !== null) {
-      this.startTimerFor(this.recipe, view.stepIndex)
-    }
-  }
-
   async dismissAlarm(): Promise<void> {
     if (!this.alarms.length) return
     if (this.alarmHandle !== null) {
