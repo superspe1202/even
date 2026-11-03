@@ -124,6 +124,12 @@ const esc = (s: string) =>
 /** 步驟文字裡出現烤箱或溫度的字眼，就視為烘焙做法（涵蓋各語言常見的說法）。 */
 const OVEN_WORD = /°C|℃|烤|烘|預熱|oven|preheat|Ofen|four|horno|forno|オーブン|오븐/i
 
+/** 文字框跟著內容長高，長的步驟不會被切掉、也不必在框裡捲動。 */
+function fitTextarea(el: HTMLTextAreaElement): void {
+  el.style.height = 'auto'
+  el.style.height = `${el.scrollHeight}px`
+}
+
 const DIFFICULTIES: Difficulty[] = ['easy', 'medium', 'hard']
 const SORT_KEYS: SortKey[] = ['difficulty', 'time', 'name']
 
@@ -520,6 +526,7 @@ export class PhoneUi {
 
   private onInput(event: Event) {
     const el = event.target as HTMLInputElement | HTMLTextAreaElement
+    if (el instanceof HTMLTextAreaElement) fitTextarea(el)
     // 搜尋框沒有 data-field；同步草稿，切換精簡／細節會重畫，文字才不會消失。
     if (el.id === 'query') {
       this.draftQuery = el.value
@@ -971,6 +978,7 @@ export class PhoneUi {
                   ? this.detail(this.screen.recipe)
                 : this.editor(this.screen.recipe, this.screen.isNew)
     this.root.innerHTML = `<div id="live">${this.alarmHtml()}</div>` + banner + body
+    this.root.querySelectorAll('textarea').forEach(fitTextarea)
   }
 
   /** 「時間到」橫幅。任何畫面都顯示，黏在最上面，眼鏡沒戴著也看得到。 */
