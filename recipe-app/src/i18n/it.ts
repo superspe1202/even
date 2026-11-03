@@ -192,7 +192,7 @@ export const it: Record<MsgKey, string> = {
   "u.se.run": "Trova ricette",
   "u.se.again": "Cerca di nuovo",
   "u.se.busy": "Sto pensando a qualche modo di prepararlo…",
-  "u.se.wait": "Ci vogliono circa 10-20 secondi.",
+  "u.se.wait": "Ci vogliono circa 40-50 secondi.",
   "u.se.detailLabel": "Livello di dettaglio",
   "u.se.brief": "Breve",
   "u.se.detailed": "Dettagliata",

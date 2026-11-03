@@ -192,7 +192,7 @@ export const de: Record<MsgKey, string> = {
   "u.se.run": "Rezepte finden",
   "u.se.again": "Erneut suchen",
   "u.se.busy": "Es werden ein paar Varianten überlegt…",
-  "u.se.wait": "Das dauert etwa 10 bis 20 Sekunden.",
+  "u.se.wait": "Das dauert etwa 40 bis 50 Sekunden.",
   "u.se.detailLabel": "Detailgrad",
   "u.se.brief": "Kurz",
   "u.se.detailed": "Ausführlich",

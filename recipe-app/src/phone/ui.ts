@@ -168,8 +168,8 @@ export class PhoneUi {
   /** 整頁重繪會清掉輸入框；失敗時要留著使用者打的字，不必重打。 */
   private draftUrl = ''
   private draftQuery = ''
-  /** 搜尋時選的細節程度；預設精簡版。 */
-  private searchDetail: SearchDetail = 'brief'
+  /** 搜尋時選的細節程度；預設細節版。 */
+  private searchDetail: SearchDetail = 'detailed'
   /** 進行中的搜尋可以取消；沒有搜尋時是 null。 */
   private searchAbort: AbortController | null = null
   /** AI 搜尋給的幾種做法。挑了一種進編輯器後按返回，還能回來換另一種。 */

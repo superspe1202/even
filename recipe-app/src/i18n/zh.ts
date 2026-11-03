@@ -199,7 +199,7 @@ export const zh = {
   'u.se.run': '搜尋做法',
   'u.se.again': '重新搜尋',
   'u.se.busy': '正在想幾種做法…',
-  'u.se.wait': '大約需要 10 到 20 秒。',
+  'u.se.wait': '大約需要 40 到 50 秒。',
   'u.se.detailLabel': '細節程度',
   'u.se.brief': '精簡版',
   'u.se.detailed': '細節版',

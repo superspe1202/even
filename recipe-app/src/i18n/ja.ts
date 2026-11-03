@@ -192,7 +192,7 @@ export const ja: Record<MsgKey, string> = {
   "u.se.run": "作り方を探す",
   "u.se.again": "もう一度探す",
   "u.se.busy": "作り方をいくつか考えています…",
-  "u.se.wait": "10〜20秒ほどかかります。",
+  "u.se.wait": "40〜50秒ほどかかります。",
   "u.se.detailLabel": "詳しさ",
   "u.se.brief": "簡潔版",
   "u.se.detailed": "詳細版",

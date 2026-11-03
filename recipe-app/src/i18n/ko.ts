@@ -192,7 +192,7 @@ export const ko: Record<MsgKey, string> = {
   "u.se.run": "만드는 방법 찾기",
   "u.se.again": "다시 찾기",
   "u.se.busy": "만드는 방법을 생각하는 중…",
-  "u.se.wait": "10~20초 정도 걸려요.",
+  "u.se.wait": "40~50초 정도 걸려요.",
   "u.se.detailLabel": "자세함",
   "u.se.brief": "간단히",
   "u.se.detailed": "자세히",
